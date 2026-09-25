@@ -382,6 +382,38 @@ router.get('/image/:id', async (request, response) => {
     }
 });
 
+router.post('/tags', async (request, response) => {
+    try {
+        const handle = request.user.profile.handle;
+        const items = await allRecords();
+        const counts = new Map();
+
+        for (const item of items) {
+            if (item.hidden || item.deleted) {
+                continue;
+            }
+
+            if (item.visibility !== 'public' && item.author !== handle) {
+                continue;
+            }
+
+            for (const tag of item.tags ?? []) {
+                counts.set(tag, (counts.get(tag) ?? 0) + 1);
+            }
+        }
+
+        const tags = [...counts.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 30)
+            .map(([tag, count]) => ({ tag, count }));
+
+        return response.json({ tags });
+    } catch (error) {
+        console.error('Gallery tags failed:', error);
+        return response.sendStatus(500);
+    }
+});
+
 router.post('/publish', getFileNameValidationFunction('avatar_url'), async (request, response) => {
     try {
         const handle = request.user.profile.handle;
