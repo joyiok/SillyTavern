@@ -48,3 +48,45 @@ body.login #passwordEntryBlock,
 body.login #passwordRecoveryBlock {
     margin: 2px;
 }
+
+/* ---- Registration form layout ---- */
+body.login #registerBlock {
+    width: 100%;
+    max-width: 340px;
+    align-self: center;
+    gap: 4px;
+}
+
+body.login #registerBlock h3 {
+    margin: 4px 0 8px;
+    text-align: center;
+}
+
+body.login #registerBlock .text_pole {
+    width: 100%;
+    box-sizing: border-box;
+    margin: 3px 0;
+}
+
+body.login #registerHint {
+    color: var(--SmartThemeEmColor);
+    text-align: center;
+    min-height: 1.2em;
+}
+
+/* Horizontal, equal-width button rows (register + password recovery) */
+body.login .loginButtonRow {
+    flex-wrap: nowrap;
+    width: 100%;
+    justify-content: center;
+    margin-top: 8px;
+}
+
+body.login .loginButtonRow .menu_button {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 6px 10px;
+}
