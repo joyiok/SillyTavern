@@ -496,3 +496,94 @@ a:hover { text-decoration: underline; }
     .publish-layout { flex-direction: column; }
     .publish-preview { position: static; width: 100%; }
 }
+
+/* ============================================================
+ * Site admin section (users / quotas / invites)
+ * ============================================================ */
+
+.admin-section { max-width: 1100px; margin: 0 auto; padding: 22px; }
+.admin-section h2 { font-size: calc(var(--mainFontSize) * 1.15); margin: 18px 0 12px; }
+.admin-section h2:first-child { margin-top: 0; }
+
+.info-card {
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: var(--gal-radius);
+    background: var(--gal-panel-soft);
+    padding: 13px 16px;
+    margin-bottom: 14px;
+    line-height: 1.9;
+    font-size: calc(var(--mainFontSize) * 0.92);
+}
+
+.user-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding: 13px 16px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: var(--gal-radius);
+    background: var(--gal-panel-soft);
+    margin-bottom: 10px;
+}
+
+.user-id { min-width: 160px; }
+.user-id .uname { font-weight: 600; }
+.user-id .uhandle { font-size: calc(var(--mainFontSize) * 0.85); color: var(--gal-dim); }
+
+.usage-block { display: flex; gap: 18px; flex: 1; flex-wrap: wrap; min-width: 280px; }
+.usage-item { min-width: 130px; }
+.usage-item .label { font-size: calc(var(--mainFontSize) * 0.82); color: var(--gal-dim); margin-bottom: 4px; }
+.usage-bar { height: 6px; border-radius: 4px; background: var(--gal-hover); overflow: hidden; }
+.usage-bar > div { height: 100%; background: var(--gal-accent); border-radius: 4px; }
+.usage-bar > div.over { background: var(--gal-danger); }
+.usage-text { font-size: calc(var(--mainFontSize) * 0.82); margin-top: 3px; }
+
+.user-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.user-actions .menu_button { padding: 3px 10px; }
+
+.invite-create { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+.invite-create .text_pole { max-width: 260px; margin: 0; }
+.invite-create label { display: flex; align-items: center; gap: 6px; font-size: calc(var(--mainFontSize) * 0.9); }
+
+.invite-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 16px;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: var(--gal-radius);
+    background: var(--gal-panel-soft);
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+
+.invite-code {
+    font-family: var(--monoFontFamily);
+    font-size: calc(var(--mainFontSize) * 1.05);
+    letter-spacing: 2px;
+    color: var(--gal-accent);
+    min-width: 110px;
+}
+
+.invite-note { color: var(--gal-dim); font-size: calc(var(--mainFontSize) * 0.88); flex: 1; min-width: 140px; }
+
+/* ============================================================
+ * Embedded overlay mode (opened inside the main SillyTavern UI)
+ * ============================================================ */
+
+.gal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    display: none;
+    overflow-y: auto;
+    background:
+        radial-gradient(1200px 500px at 80% -10%, color-mix(in srgb, var(--SmartThemeQuoteColor) 12%, transparent), transparent),
+        var(--SmartThemeChatTintColor);
+    color: var(--SmartThemeBodyColor);
+    font-family: var(--mainFontFamily);
+    font-size: var(--mainFontSize);
+}
+
+.gal-overlay.open { display: block; }

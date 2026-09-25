@@ -1,7 +1,8 @@
 /**
- * 作品广场 (Gallery) frontend.
- * Browse, publish, claim and moderate shared character cards.
- * Applies the user's active SillyTavern theme so the page looks native.
+ * 作品广场 (Gallery) + 站点管理 (Site admin) frontend.
+ * A single unified surface: gallery browsing/publishing, content moderation
+ * and site administration. Applies the user's active SillyTavern theme so it
+ * looks native both as a standalone page and embedded into the main UI.
  */
 
 let csrfToken = '';
@@ -108,13 +109,13 @@ async function getCsrfToken() {
 }
 
 /**
- * Sends a JSON request to the gallery API.
- * @param {string} endpoint API path (relative to /api/gallery)
+ * Sends a JSON request.
+ * @param {string} url API URL
  * @param {object} body Request body
  * @returns {Promise<any>} Parsed response
  */
-async function api(endpoint, body = {}) {
-    const response = await fetch(`/api/gallery/${endpoint}`, {
+async function api(url, body = {}) {
+    const response = await fetch(url, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -140,6 +141,16 @@ async function api(endpoint, body = {}) {
     }
 
     return data;
+}
+
+/**
+ * Sends a JSON request to the gallery API.
+ * @param {string} endpoint API path (relative to /api/gallery)
+ * @param {object} body Request body
+ * @returns {Promise<any>} Parsed response
+ */
+function galleryApi(endpoint, body = {}) {
+    return api(`/api/gallery/${endpoint}`, body);
 }
 
 /**
@@ -184,6 +195,37 @@ function closeModal(id) {
 }
 
 // ============================================================
+// View switching (gallery / site admin)
+// ============================================================
+
+/**
+ * Switches between the gallery view and the site admin view.
+ * @param {string} view 'gallery' or 'admin'
+ * @returns {Promise<void>}
+ */
+async function switchView(view) {
+    if (view === 'admin' && !isAdmin) {
+        return;
+    }
+
+    document.querySelectorAll('#viewTabs .tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.view === view);
+    });
+
+    document.getElementById('viewGallery').style.display = view === 'gallery' ? '' : 'none';
+    document.getElementById('viewAdmin').style.display = view === 'admin' ? '' : 'none';
+    document.getElementById('searchBox').style.display = view === 'gallery' ? '' : 'none';
+    document.getElementById('sortTabs').style.display = view === 'gallery' ? '' : 'none';
+    document.getElementById('publishBtn').style.display = view === 'gallery' ? '' : 'none';
+
+    if (view === 'admin') {
+        await Promise.all([loadSiteUsers(), loadRegistrationView()]);
+    } else {
+        await loadList();
+    }
+}
+
+// ============================================================
 // Gallery list
 // ============================================================
 
@@ -210,7 +252,7 @@ async function loadList() {
             body.sort = currentSort;
         }
 
-        const data = await api('list', body);
+        const data = await galleryApi('list', body);
         grid.innerHTML = '';
         empty.style.display = data.items.length ? 'none' : 'block';
 
@@ -223,7 +265,7 @@ async function loadList() {
 }
 
 /**
- * Loads and renders the admin moderation view.
+ * Loads and renders the content moderation view.
  * @returns {Promise<void>}
  */
 async function loadAdminList() {
@@ -231,7 +273,7 @@ async function loadAdminList() {
     const empty = document.getElementById('empty');
 
     try {
-        const data = await api('admin/list');
+        const data = await galleryApi('admin/list');
         let items = data.items ?? [];
 
         // Stats
@@ -306,7 +348,7 @@ function renderCard(item) {
  */
 async function openDetail(itemId) {
     try {
-        const item = await api('item', { id: itemId });
+        const item = await galleryApi('item', { id: itemId });
         currentItem = item;
 
         document.getElementById('detailCover').src = `/api/gallery/image/${item.id}`;
@@ -439,7 +481,7 @@ function renderCharacterPicker(query) {
  */
 function renderTagChips() {
     const box = document.getElementById('chipsBox');
-    const input = document.getElementById('tagInput');
+    const input = document.getElementById('galTagInput');
     box.querySelectorAll('.chip').forEach(el => el.remove());
 
     for (const tag of publishTags) {
@@ -486,7 +528,7 @@ async function loadTagSuggestions() {
     const box = document.getElementById('tagSuggestions');
 
     try {
-        const data = await api('tags');
+        const data = await galleryApi('tags');
         box.innerHTML = (data.tags ?? [])
             .filter(t => !publishTags.includes(t.tag))
             .slice(0, 12)
@@ -523,11 +565,7 @@ function updatePreview() {
     }
 
     const hint = document.getElementById('previewHint');
-    if (desc) {
-        hint.textContent = `简介 ${desc.length} 字`;
-    } else {
-        hint.textContent = '还没有写简介';
-    }
+    hint.textContent = desc ? `简介 ${desc.length} 字` : '还没有写简介';
 
     document.getElementById('titleCounter').textContent = `${document.getElementById('pubTitle').value.length} / 80`;
     document.getElementById('descCounter').textContent = `${document.getElementById('pubDesc').value.length} / 2000`;
@@ -556,10 +594,7 @@ async function openPublish(item = null) {
     document.getElementById('pubNote').value = '';
     document.getElementById('charSearch').value = '';
 
-    // Visibility
     setVisibility(item?.visibility ?? 'public');
-
-    // Validation state reset
     document.getElementById('charPickerRow').classList.remove('invalid');
     document.getElementById('titleRow').classList.remove('invalid');
 
@@ -629,10 +664,10 @@ async function submitPublish() {
 
     try {
         if (publishingItemId) {
-            await api('update', { id: publishingItemId, ...payload });
+            await galleryApi('update', { id: publishingItemId, ...payload });
             toast('已发布新版本 ✓', 'success');
         } else {
-            await api('publish', payload);
+            await galleryApi('publish', payload);
             toast('发布成功，作品已上架广场 ✓', 'success');
         }
 
@@ -642,6 +677,224 @@ async function submitPublish() {
         toast(error.message, 'error');
     } finally {
         submitBtn.disabled = false;
+    }
+}
+
+// ============================================================
+// Site admin: users, quotas, invites
+// ============================================================
+
+/**
+ * Renders a usage bar.
+ * @param {string} label Label
+ * @param {number} used Used amount
+ * @param {number} max Maximum amount (-1 = unlimited)
+ * @param {string} unit Unit suffix
+ * @returns {string} HTML string
+ */
+function usageBar(label, used, max, unit) {
+    const unlimited = max < 0;
+    const percent = unlimited ? 0 : Math.min((used / Math.max(max, 1)) * 100, 100);
+    const over = !unlimited && used >= max;
+
+    return `
+        <div class="usage-item">
+            <div class="label">${esc(label)}</div>
+            <div class="usage-bar"><div class="${over ? 'over' : ''}" style="width:${unlimited ? 4 : percent}%"></div></div>
+            <div class="usage-text">${esc(used)}${unit} / ${unlimited ? '不限' : esc(max) + unit}</div>
+        </div>`;
+}
+
+/**
+ * Loads and renders the user list with usage.
+ * @returns {Promise<void>}
+ */
+async function loadSiteUsers() {
+    const container = document.getElementById('adminUserList');
+
+    try {
+        const data = await api('/api/admin/users');
+        const q = data.quotas ?? {};
+
+        document.getElementById('adminQuotaInfo').innerHTML = q.enabled
+            ? `<i class="fa-solid fa-circle-check" style="color:var(--gal-ok)"></i> 配额已启用：
+               存储 ${q.maxStorageMB < 0 ? '不限' : q.maxStorageMB + ' MB'} ·
+               角色卡 ${q.maxCharacters < 0 ? '不限' : q.maxCharacters + ' 个'} ·
+               广场作品 ${q.maxGalleryItems < 0 ? '不限' : q.maxGalleryItems + ' 个'}
+               <small>（修改 config.yaml 中 quotas 配置后重启生效）</small>`
+            : '<i class="fa-solid fa-circle-xmark" style="color:var(--gal-danger)"></i> 配额未启用';
+
+        if (!data.users.length) {
+            container.innerHTML = '<div class="info-card">还没有用户</div>';
+            return;
+        }
+
+        container.innerHTML = '';
+
+        for (const user of data.users) {
+            const row = document.createElement('div');
+            row.className = 'user-row';
+
+            const badges = [
+                user.admin ? '<span class="badge">管理员</span>' : '',
+                user.enabled ? '' : '<span class="badge warn">待审批 / 已停用</span>',
+                user.hasPassword ? '' : '<span class="badge warn">无密码</span>',
+            ].join(' ');
+
+            row.innerHTML = `
+                <div class="user-id">
+                    <div class="uname">${esc(user.name)} ${badges}</div>
+                    <div class="uhandle">@${esc(user.handle)} · 注册于 ${new Date(user.created).toLocaleDateString()}</div>
+                </div>
+                <div class="usage-block">
+                    ${usageBar('存储', Math.round(user.storageBytes / 1024 / 1024 * 10) / 10, q.maxStorageMB, ' MB')}
+                    ${usageBar('角色卡', user.characters, q.maxCharacters, '')}
+                    ${usageBar('广场作品', user.galleryItems, q.maxGalleryItems, '')}
+                </div>
+                <div class="user-actions">
+                    ${user.enabled
+        ? `<button class="menu_button" data-act="disable" data-handle="${esc(user.handle)}"><i class="fa-solid fa-ban"></i> 停用</button>`
+        : `<button class="menu_button btn-ok" data-act="enable" data-handle="${esc(user.handle)}"><i class="fa-solid fa-check"></i> 通过/启用</button>`}
+                    <button class="menu_button" data-act="${user.admin ? 'demote' : 'promote'}" data-handle="${esc(user.handle)}">
+                        <i class="fa-solid fa-user-tie"></i> ${user.admin ? '取消管理员' : '设为管理员'}
+                    </button>
+                    <button class="menu_button btn-danger" data-act="delete" data-handle="${esc(user.handle)}"><i class="fa-solid fa-trash"></i> 删除</button>
+                </div>`;
+
+            container.appendChild(row);
+        }
+
+        container.querySelectorAll('[data-act]').forEach(btn => {
+            btn.addEventListener('click', () => handleUserAction(btn.dataset.act, btn.dataset.handle));
+        });
+    } catch (error) {
+        container.innerHTML = `<div class="info-card">${esc(error.message)}</div>`;
+    }
+}
+
+/**
+ * Handles a user management action.
+ * @param {string} action Action name
+ * @param {string} handle User handle
+ * @returns {Promise<void>}
+ */
+async function handleUserAction(action, handle) {
+    try {
+        if (action === 'delete') {
+            if (!window.confirm(`确定删除用户 ${handle} 吗？其所有数据将被删除，此操作不可恢复。`)) {
+                return;
+            }
+
+            await api('/api/users/delete', { handle });
+            toast(`已删除用户 ${handle} ✓`, 'success');
+        } else if (action === 'enable') {
+            await api('/api/users/enable', { handle });
+            toast(`已启用用户 ${handle} ✓`, 'success');
+        } else if (action === 'disable') {
+            await api('/api/users/disable', { handle });
+            toast(`已停用用户 ${handle} ✓`, 'success');
+        } else if (action === 'promote') {
+            await api('/api/users/promote', { handle });
+            toast(`已将 ${handle} 设为管理员 ✓`, 'success');
+        } else if (action === 'demote') {
+            await api('/api/users/demote', { handle });
+            toast(`已取消 ${handle} 的管理员权限 ✓`, 'success');
+        }
+
+        await loadSiteUsers();
+    } catch (error) {
+        toast(error.message, 'error');
+    }
+}
+
+/**
+ * Loads registration settings and invite codes.
+ * @returns {Promise<void>}
+ */
+async function loadRegistrationView() {
+    try {
+        const data = await api('/api/admin/registration');
+
+        document.getElementById('adminRegistrationInfo').innerHTML = `
+            <i class="fa-solid fa-circle-info" style="color:var(--gal-accent)"></i>
+            注册功能：<b>${data.enabled ? '已开启' : '已关闭'}</b> ·
+            邀请码：<b>${data.inviteRequired ? '必须' : '不需要'}</b> ·
+            注册审批：<b>${data.requireApproval ? '需要' : '不需要'}</b> ·
+            密码最少 <b>${data.minPasswordLength}</b> 位
+            <small>（修改 config.yaml 中 registration 配置后重启生效）</small>`;
+
+        const container = document.getElementById('adminInviteList');
+        const invites = data.invites ?? [];
+
+        if (!invites.length) {
+            container.innerHTML = '<div class="info-card">还没有生成过邀请码</div>';
+            return;
+        }
+
+        container.innerHTML = '';
+
+        for (const invite of invites) {
+            const row = document.createElement('div');
+            row.className = 'invite-row';
+            row.innerHTML = `
+                <div class="invite-code">${esc(invite.code)}</div>
+                <div class="invite-note">
+                    ${esc(invite.note || '（无备注）')} ·
+                    ${invite.singleUse ? '单次使用' : '可重复使用'} ·
+                    ${invite.usedBy ? `已被 <b>${esc(invite.usedBy)}</b> 使用` : '未使用'} ·
+                    创建于 ${new Date(invite.created).toLocaleDateString()}
+                </div>
+                <div class="user-actions">
+                    <button class="menu_button" data-copy="${esc(invite.code)}"><i class="fa-solid fa-copy"></i> 复制</button>
+                    <button class="menu_button btn-danger" data-del="${esc(invite.code)}"><i class="fa-solid fa-trash"></i> 删除</button>
+                </div>`;
+            container.appendChild(row);
+        }
+
+        container.querySelectorAll('[data-copy]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                await navigator.clipboard.writeText(btn.dataset.copy);
+                toast('已复制到剪贴板 ✓', 'success');
+            });
+        });
+
+        container.querySelectorAll('[data-del]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                if (!window.confirm(`确定删除邀请码 ${btn.dataset.del} 吗？`)) {
+                    return;
+                }
+
+                try {
+                    await api('/api/admin/invites/delete', { code: btn.dataset.del });
+                    toast('已删除邀请码 ✓', 'success');
+                    await loadRegistrationView();
+                } catch (error) {
+                    toast(error.message, 'error');
+                }
+            });
+        });
+    } catch (error) {
+        document.getElementById('adminRegistrationInfo').innerHTML = esc(error.message);
+        document.getElementById('adminInviteList').innerHTML = '';
+    }
+}
+
+/**
+ * Creates a new invite code.
+ * @returns {Promise<void>}
+ */
+async function createInvite() {
+    try {
+        const invite = await api('/api/admin/invites/create', {
+            note: document.getElementById('adminInviteNote').value.trim(),
+            singleUse: document.getElementById('adminInviteSingleUse').checked,
+        });
+
+        document.getElementById('adminInviteNote').value = '';
+        toast(`邀请码已生成：${invite.code}`, 'success');
+        await loadRegistrationView();
+    } catch (error) {
+        toast(error.message, 'error');
     }
 }
 
@@ -664,6 +917,11 @@ function bindEvents() {
                 closeModal(mask.id);
             }
         });
+    });
+
+    // View switching (gallery / site admin)
+    document.querySelectorAll('#viewTabs .tab').forEach(tab => {
+        tab.addEventListener('click', () => switchView(tab.dataset.view));
     });
 
     // Sort tabs
@@ -708,7 +966,7 @@ function bindEvents() {
     });
 
     // Tag chips editor
-    document.getElementById('tagInput').addEventListener('keydown', (event) => {
+    document.getElementById('galTagInput').addEventListener('keydown', (event) => {
         if (event.key === 'Enter' || event.key === ',' || event.key === '，') {
             event.preventDefault();
             addTag(event.target.value);
@@ -729,7 +987,7 @@ function bindEvents() {
     // Detail actions
     document.getElementById('claimBtn').addEventListener('click', async () => {
         try {
-            const data = await api('claim', { id: currentItem.id });
+            const data = await galleryApi('claim', { id: currentItem.id });
             toast(`已领取：${data.file_name}.png ✓ 回聊天页刷新角色列表即可看到`, 'success');
             await openDetail(currentItem.id);
         } catch (error) {
@@ -739,7 +997,7 @@ function bindEvents() {
 
     document.getElementById('likeBtn').addEventListener('click', async () => {
         try {
-            await api('like', { id: currentItem.id });
+            await galleryApi('like', { id: currentItem.id });
             await openDetail(currentItem.id);
         } catch (error) {
             toast(error.message, 'error');
@@ -753,7 +1011,7 @@ function bindEvents() {
         }
 
         try {
-            await api('report', { id: currentItem.id, reason });
+            await galleryApi('report', { id: currentItem.id, reason });
             toast('已提交举报，管理员会尽快处理 ✓', 'success');
         } catch (error) {
             toast(error.message, 'error');
@@ -771,7 +1029,7 @@ function bindEvents() {
         }
 
         try {
-            await api('delete', { id: currentItem.id });
+            await galleryApi('delete', { id: currentItem.id });
             toast('已删除 ✓', 'success');
             closeModal('detailMask');
             await loadList();
@@ -782,7 +1040,7 @@ function bindEvents() {
 
     document.getElementById('hideBtn').addEventListener('click', async () => {
         try {
-            await api('admin/hide', { id: currentItem.id, hidden: !currentItem.hidden });
+            await galleryApi('admin/hide', { id: currentItem.id, hidden: !currentItem.hidden });
             toast(currentItem.hidden ? '已取消隐藏 ✓' : '已隐藏 ✓', 'success');
             await openDetail(currentItem.id);
             await loadList();
@@ -791,17 +1049,16 @@ function bindEvents() {
         }
     });
 
-    // Admin view
-    document.getElementById('adminBtn').addEventListener('click', () => {
+    // Content moderation toggle
+    document.getElementById('adminToggleBtn').addEventListener('click', () => {
         adminView = !adminView;
         adminFilter = 'all';
-        const adminBar = document.getElementById('adminBar');
-        const adminBtn = document.getElementById('adminBtn');
-        adminBar.style.display = adminView ? 'flex' : 'none';
-        adminBtn.classList.toggle('primary', adminView);
-        adminBtn.innerHTML = adminView
-            ? '<i class="fa-solid fa-times"></i> 退出管理'
-            : '<i class="fa-solid fa-shield-halved"></i> 管理后台';
+        const btn = document.getElementById('adminToggleBtn');
+        btn.classList.toggle('primary', adminView);
+        btn.innerHTML = adminView
+            ? '<i class="fa-solid fa-times"></i> 退出管理视图'
+            : '<i class="fa-solid fa-shield-halved"></i> 管理视图';
+        document.getElementById('adminBar').style.display = adminView ? 'flex' : 'none';
         document.querySelectorAll('#adminFilterTabs .tab').forEach(t => t.classList.remove('active'));
         document.querySelector('#adminFilterTabs .tab[data-adminfilter="all"]').classList.add('active');
         loadList();
@@ -815,6 +1072,9 @@ function bindEvents() {
             loadList();
         });
     });
+
+    // Site admin
+    document.getElementById('adminCreateInviteBtn').addEventListener('click', createInvite);
 }
 
 // ============================================================
@@ -830,7 +1090,7 @@ async function init() {
     await applyUserTheme();
     bindEvents();
 
-    // Show admin button if the current user is an admin
+    // Show site admin tab if the current user is an admin
     try {
         const response = await fetch('/api/users/me', {
             method: 'GET',
@@ -841,11 +1101,11 @@ async function init() {
         if (response.ok) {
             const me = await response.json();
             isAdmin = me.admin === true;
-            document.getElementById('adminBtn').style.display = isAdmin ? '' : 'none';
-            document.getElementById('siteAdminLink').style.display = isAdmin ? '' : 'none';
+            document.getElementById('adminViewTab').style.display = isAdmin ? '' : 'none';
+            document.getElementById('adminToggleBtn').style.display = isAdmin ? '' : 'none';
         }
     } catch {
-        // Ignore: the admin button is only a convenience
+        // Ignore: admin UI is only a convenience
     }
 
     await loadList();

@@ -18,38 +18,72 @@
 <body class="st-page">
     <header id="galleryHeader">
         <div class="logo"><i class="fa-solid fa-store"></i>作品广场</div>
-        <div class="search-box">
+
+        <div class="tab-strip" id="viewTabs">
+            <div class="tab active" data-view="gallery"><i class="fa-solid fa-images"></i> 广场</div>
+            <div class="tab" data-view="admin" id="adminViewTab" style="display:none"><i class="fa-solid fa-shield-halved"></i> 站点管理</div>
+        </div>
+
+        <div class="search-box" id="searchBox">
             <input id="searchInput" class="text_pole" type="text" placeholder="搜索作品、作者、标签…">
             <button id="searchBtn" class="menu_button"><i class="fa-solid fa-magnifying-glass"></i> 搜索</button>
         </div>
+
         <div class="tab-strip" id="sortTabs">
             <div class="tab active" data-sort="new"><i class="fa-solid fa-clock"></i> 最新</div>
             <div class="tab" data-sort="hot"><i class="fa-solid fa-fire"></i> 热门</div>
             <div class="tab" data-sort="downloads"><i class="fa-solid fa-download"></i> 下载榜</div>
             <div class="tab" data-sort="mine"><i class="fa-solid fa-user"></i> 我的作品</div>
         </div>
+
         <div class="actions">
+            <button class="menu_button" id="adminToggleBtn" style="display:none"><i class="fa-solid fa-shield-halved"></i> 管理视图</button>
             <button class="menu_button primary" id="publishBtn"><i class="fa-solid fa-cloud-arrow-up"></i> 发布作品</button>
-            <button class="menu_button" id="adminBtn" style="display:none"><i class="fa-solid fa-shield-halved"></i> 管理后台</button>
-            <a class="menu_button" id="siteAdminLink" href="/admin.html" style="display:none"><i class="fa-solid fa-gear"></i> 站点管理</a>
-            <a class="menu_button" href="/"><i class="fa-solid fa-arrow-left"></i> 返回聊天</a>
+            <a class="menu_button" id="backToChat" href="/"><i class="fa-solid fa-arrow-left"></i> 返回聊天</a>
         </div>
     </header>
 
-    <div id="adminBar">
-        <div class="admin-stats" id="adminStats"></div>
-        <div class="tab-strip" id="adminFilterTabs">
-            <div class="tab active" data-adminfilter="all">全部作品</div>
-            <div class="tab" data-adminfilter="reported"><i class="fa-solid fa-flag"></i> 待处理举报</div>
-            <div class="tab" data-adminfilter="hidden"><i class="fa-solid fa-eye-slash"></i> 已隐藏</div>
-            <div class="tab" data-adminfilter="unlisted"><i class="fa-solid fa-lock"></i> 不公开</div>
+    <!-- ============ 广场视图 ============ -->
+    <div id="viewGallery">
+        <div id="adminBar">
+            <div class="admin-stats" id="adminStats"></div>
+            <div class="tab-strip" id="adminFilterTabs">
+                <div class="tab active" data-adminfilter="all">全部作品</div>
+                <div class="tab" data-adminfilter="reported"><i class="fa-solid fa-flag"></i> 待处理举报</div>
+                <div class="tab" data-adminfilter="hidden"><i class="fa-solid fa-eye-slash"></i> 已隐藏</div>
+                <div class="tab" data-adminfilter="unlisted"><i class="fa-solid fa-lock"></i> 不公开</div>
+            </div>
         </div>
+
+        <main id="galleryMain">
+            <div id="grid"></div>
+            <div id="empty" style="display:none"><i class="fa-solid fa-ghost" style="font-size:2em; margin-bottom:12px;"></i><br>这里还什么都没有～ 成为第一个分享作品的人吧！</div>
+        </main>
     </div>
 
-    <main id="galleryMain">
-        <div id="grid"></div>
-        <div id="empty" style="display:none"><i class="fa-solid fa-ghost" style="font-size:2em; margin-bottom:12px;"></i><br>这里还什么都没有～ 成为第一个分享作品的人吧！</div>
-    </main>
+    <!-- ============ 站点管理视图 ============ -->
+    <div id="viewAdmin" style="display:none">
+        <div class="admin-section">
+            <h2><i class="fa-solid fa-gauge-high" style="color:var(--gal-accent); margin-right:6px;"></i>配额与用量</h2>
+            <div class="info-card" id="adminQuotaInfo">加载中…</div>
+
+            <h2><i class="fa-solid fa-users" style="color:var(--gal-accent); margin-right:6px;"></i>用户列表</h2>
+            <div id="adminUserList">加载中…</div>
+
+            <h2><i class="fa-solid fa-ticket" style="color:var(--gal-accent); margin-right:6px;"></i>注册设置</h2>
+            <div class="info-card" id="adminRegistrationInfo">加载中…</div>
+
+            <h2><i class="fa-solid fa-plus" style="color:var(--gal-accent); margin-right:6px;"></i>生成邀请码</h2>
+            <div class="invite-create">
+                <input type="text" id="adminInviteNote" class="text_pole" placeholder="备注（例如：给张三）">
+                <label><input type="checkbox" id="adminInviteSingleUse" checked> 单次使用</label>
+                <button class="menu_button primary" id="adminCreateInviteBtn"><i class="fa-solid fa-plus"></i> 生成</button>
+            </div>
+
+            <h2><i class="fa-solid fa-list" style="color:var(--gal-accent); margin-right:6px;"></i>邀请码列表</h2>
+            <div id="adminInviteList">加载中…</div>
+        </div>
+    </div>
 
     <!-- 详情弹窗 -->
     <div class="modal-mask" id="detailMask">
@@ -113,7 +147,7 @@
                     <div class="form-row">
                         <label><i class="fa-solid fa-tags"></i> 标签 <span class="counter" id="tagCounter">0 / 10</span></label>
                         <div class="chips-input" id="chipsBox">
-                            <input type="text" id="tagInput" placeholder="输入标签后回车添加">
+                            <input type="text" id="galTagInput" placeholder="输入标签后回车添加">
                         </div>
                         <div class="tag-suggestions" id="tagSuggestions"></div>
                         <div class="hint">最多 10 个标签，方便大家搜索到你的作品</div>
