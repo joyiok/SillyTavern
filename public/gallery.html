@@ -195,6 +195,39 @@
 
         .badge.warn { background: var(--danger); }
 
+        /* ---- Admin bar ---- */
+        #adminBar {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+            padding: 12px 24px;
+            background: var(--bg-panel);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .admin-stats {
+            display: flex;
+            gap: 18px;
+            font-size: 13px;
+            color: var(--text-dim);
+        }
+
+        .admin-stats b { color: var(--text); font-size: 15px; margin-right: 4px; }
+
+        .report-list {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 12px 14px;
+            font-size: 13px;
+            line-height: 1.8;
+            max-height: 180px;
+            overflow-y: auto;
+        }
+
+        .report-list .empty-line { color: var(--text-dim); }
+
         /* ---- Modal ---- */
         .modal-mask {
             position: fixed;
@@ -348,10 +381,20 @@
         </div>
         <div class="actions">
             <button class="btn primary" id="publishBtn">＋ 发布作品</button>
-            <button class="btn" id="adminBtn" style="display:none">管理</button>
+            <button class="btn" id="adminBtn" style="display:none">🛠 管理后台</button>
             <a class="btn" href="/">← 返回聊天</a>
         </div>
     </header>
+
+    <div id="adminBar" style="display:none">
+        <div class="admin-stats" id="adminStats"></div>
+        <div class="tabs">
+            <div class="tab active" data-adminfilter="all">全部作品</div>
+            <div class="tab" data-adminfilter="reported">⚠ 待处理举报</div>
+            <div class="tab" data-adminfilter="hidden">已隐藏</div>
+            <div class="tab" data-adminfilter="unlisted">不公开</div>
+        </div>
+    </div>
 
     <main>
         <div class="grid" id="grid"></div>
@@ -382,6 +425,10 @@
             <div class="detail-desc" id="detailDesc"></div>
             <h2 style="font-size:15px; margin:18px 0 8px;">版本历史</h2>
             <div class="versions" id="detailVersions"></div>
+            <div id="detailReportsBlock" style="display:none">
+                <h2 style="font-size:15px; margin:18px 0 8px;">举报记录</h2>
+                <div class="report-list" id="detailReports"></div>
+            </div>
         </div>
     </div>
 

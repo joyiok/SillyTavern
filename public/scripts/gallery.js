@@ -5,6 +5,8 @@
 
 let csrfToken = '';
 let isAdmin = false;
+let adminView = false;
+let adminFilter = 'all';
 let currentSort = 'new';
 let currentQuery = '';
 let currentPage = 1;
@@ -107,6 +109,11 @@ async function loadList() {
     const empty = document.getElementById('empty');
 
     try {
+        if (adminView) {
+            await loadAdminList();
+            return;
+        }
+
         const body = { page: currentPage, limit: 24, q: currentQuery };
 
         if (currentSort === 'mine') {
@@ -121,6 +128,53 @@ async function loadList() {
         empty.style.display = data.items.length ? 'none' : 'block';
 
         for (const item of data.items) {
+            grid.appendChild(renderCard(item));
+        }
+    } catch (error) {
+        toast(error.message, true);
+    }
+}
+
+/**
+ * Loads and renders the admin moderation view.
+ * @returns {Promise<void>}
+ */
+async function loadAdminList() {
+    const grid = document.getElementById('grid');
+    const empty = document.getElementById('empty');
+
+    try {
+        const data = await api('admin/list');
+        let items = data.items ?? [];
+
+        // Stats
+        const totalDownloads = items.reduce((sum, i) => sum + (i.downloads ?? 0), 0);
+        const totalLikes = items.reduce((sum, i) => sum + (i.likes ?? 0), 0);
+        const pendingReports = items.filter(i => Array.isArray(i.reports) && i.reports.length).length;
+        document.getElementById('adminStats').innerHTML = `
+            <span><b>${items.length}</b>作品</span>
+            <span><b>${totalDownloads}</b>总领取</span>
+            <span><b>${totalLikes}</b>总点赞</span>
+            <span><b>${pendingReports}</b>待处理举报</span>`;
+
+        // Filters
+        if (adminFilter === 'reported') {
+            items = items.filter(i => Array.isArray(i.reports) && i.reports.length);
+        } else if (adminFilter === 'hidden') {
+            items = items.filter(i => i.hidden);
+        } else if (adminFilter === 'unlisted') {
+            items = items.filter(i => i.visibility !== 'public');
+        }
+
+        if (currentQuery) {
+            const q = currentQuery.toLowerCase();
+            items = items.filter(i => [i.title, i.author, i.cardName, ...(i.tags ?? [])].join(' ').toLowerCase().includes(q));
+        }
+
+        grid.innerHTML = '';
+        empty.style.display = items.length ? 'none' : 'block';
+
+        for (const item of items) {
             grid.appendChild(renderCard(item));
         }
     } catch (error) {
@@ -145,6 +199,7 @@ function renderCard(item) {
             <div class="stats">
                 <span>❤ ${item.likes ?? 0}</span>
                 <span>⬇ ${item.downloads ?? 0}</span>
+                ${Array.isArray(item.reports) && item.reports.length ? `<span class="badge warn">⚠ ${item.reports.length} 举报</span>` : ''}
                 ${item.hidden ? '<span class="badge warn">已隐藏</span>' : ''}
                 ${item.visibility === 'unlisted' ? '<span class="badge">不公开</span>' : ''}
             </div>
@@ -177,6 +232,17 @@ async function openDetail(itemId) {
         document.getElementById('detailVersions').innerHTML = (item.versions ?? []).slice().reverse()
             .map(v => `<div>v${esc(v.version)} · ${new Date(v.date).toLocaleString()} ${v.note ? '· ' + esc(v.note) : ''}</div>`)
             .join('');
+
+        // Admin-only: report details
+        const reportsBlock = document.getElementById('detailReportsBlock');
+        if (isAdmin && Array.isArray(item.reports) && item.reports.length) {
+            reportsBlock.style.display = '';
+            document.getElementById('detailReports').innerHTML = item.reports
+                .map(r => `<div>🚩 <b>${esc(r.by)}</b> · ${new Date(r.date).toLocaleString()}<br>${esc(r.reason || '（未填写原因）')}</div>`)
+                .join('');
+        } else {
+            reportsBlock.style.display = 'none';
+        }
 
         const likeBtn = document.getElementById('likeBtn');
         likeBtn.textContent = item.liked ? '❤ 已点赞' : '❤ 点赞';
@@ -419,11 +485,25 @@ function bindEvents() {
     });
 
     document.getElementById('adminBtn').addEventListener('click', () => {
-        currentSort = 'new';
-        currentQuery = '';
-        document.getElementById('searchInput').value = '';
+        adminView = !adminView;
+        adminFilter = 'all';
+        const adminBar = document.getElementById('adminBar');
+        const adminBtn = document.getElementById('adminBtn');
+        adminBar.style.display = adminView ? 'flex' : 'none';
+        adminBtn.classList.toggle('primary', adminView);
+        adminBtn.textContent = adminView ? '✕ 退出管理' : '🛠 管理后台';
+        document.querySelectorAll('#adminBar .tab').forEach(t => t.classList.remove('active'));
+        document.querySelector('#adminBar .tab[data-adminfilter="all"]').classList.add('active');
         loadList();
-        toast('管理视图：点击作品可进行隐藏 / 删除');
+    });
+
+    document.querySelectorAll('#adminBar .tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('#adminBar .tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            adminFilter = tab.dataset.adminfilter;
+            loadList();
+        });
     });
 }
 
