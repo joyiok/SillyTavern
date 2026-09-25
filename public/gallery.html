@@ -21,6 +21,7 @@
 
         <div class="tab-strip" id="viewTabs">
             <div class="tab active" data-view="gallery"><i class="fa-solid fa-images"></i> 广场</div>
+            <div class="tab" data-view="channels" id="channelsViewTab"><i class="fa-solid fa-microchip"></i> 模型</div>
             <div class="tab" data-view="admin" id="adminViewTab" style="display:none"><i class="fa-solid fa-shield-halved"></i> 站点管理</div>
         </div>
 
@@ -59,6 +60,34 @@
             <div id="grid"></div>
             <div id="empty" style="display:none"><i class="fa-solid fa-ghost" style="font-size:2em; margin-bottom:12px;"></i><br>这里还什么都没有～ 成为第一个分享作品的人吧！</div>
         </main>
+    </div>
+
+    <!-- ============ 模型视图 ============ -->
+    <div id="viewChannels" style="display:none">
+        <div class="admin-section">
+            <h2><i class="fa-solid fa-microchip" style="color:var(--gal-accent); margin-right:6px;"></i>选择模型</h2>
+            <div class="info-card" id="channelHint">加载中…</div>
+            <div id="channelList"></div>
+
+            <div id="channelAdmin" style="display:none">
+                <h2><i class="fa-solid fa-sliders" style="color:var(--gal-accent); margin-right:6px;"></i>管理模型渠道</h2>
+                <div class="channel-form">
+                    <input type="text" id="chName" class="text_pole" placeholder="渠道名称（例如：官方 GPT）">
+                    <select id="chType" class="text_pole">
+                        <option value="openai-compatible">OpenAI 兼容</option>
+                        <option value="anthropic">Anthropic (Claude)</option>
+                        <option value="google">Google (Gemini)</option>
+                        <option value="text-completions">文本补全 (Kobold 兼容)</option>
+                    </select>
+                    <input type="text" id="chUrl" class="text_pole" placeholder="接口地址（例如：https://api.example.com/v1）">
+                    <input type="password" id="chKey" class="text_pole" placeholder="API Key（留空则不修改）" autocomplete="new-password">
+                    <input type="text" id="chModels" class="text_pole" placeholder="可用模型（逗号分隔，留空 = 不限制）">
+                    <label><input type="checkbox" id="chEnabled" checked> 启用</label>
+                    <button class="menu_button primary" id="chSaveBtn"><i class="fa-solid fa-floppy-disk"></i> 保存渠道</button>
+                </div>
+                <div id="channelAdminList"></div>
+            </div>
+        </div>
     </div>
 
     <!-- ============ 站点管理视图 ============ -->

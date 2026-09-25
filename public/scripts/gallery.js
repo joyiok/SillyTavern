@@ -214,12 +214,15 @@ async function switchView(view) {
 
     document.getElementById('viewGallery').style.display = view === 'gallery' ? '' : 'none';
     document.getElementById('viewAdmin').style.display = view === 'admin' ? '' : 'none';
+    document.getElementById('viewChannels').style.display = view === 'channels' ? '' : 'none';
     document.getElementById('searchBox').style.display = view === 'gallery' ? '' : 'none';
     document.getElementById('sortTabs').style.display = view === 'gallery' ? '' : 'none';
     document.getElementById('publishBtn').style.display = view === 'gallery' ? '' : 'none';
 
     if (view === 'admin') {
         await Promise.all([loadSiteUsers(), loadRegistrationView()]);
+    } else if (view === 'channels') {
+        await loadChannels();
     } else {
         await loadList();
     }
@@ -681,6 +684,205 @@ async function submitPublish() {
 }
 
 // ============================================================
+// Managed model channels
+// ============================================================
+
+/**
+ * Loads and renders the model channel selection (and admin management).
+ * @returns {Promise<void>}
+ */
+async function loadChannels() {
+    const hint = document.getElementById('channelHint');
+    const container = document.getElementById('channelList');
+
+    try {
+        const data = await api('/api/channels/list');
+        const channels = data.channels ?? [];
+        const selection = data.selection ?? {};
+
+        hint.innerHTML = data.restricted
+            ? '<i class="fa-solid fa-lock" style="color:var(--gal-accent)"></i> 模型 API 由管理员统一提供，选择一个即可使用；聊天页里的 API 设置不影响实际线路。'
+            : '<i class="fa-solid fa-circle-info" style="color:var(--gal-accent)"></i> 可选的模型渠道。';
+
+        if (!channels.length) {
+            container.innerHTML = '<div class="info-card">还没有可用的模型渠道，请联系管理员配置</div>';
+        } else {
+            container.innerHTML = '';
+
+            for (const channel of channels) {
+                const card = document.createElement('div');
+                card.className = `channel-card${selection.channelId === channel.id ? ' active' : ''}`;
+
+                const active = selection.channelId === channel.id;
+                card.innerHTML = `
+                    <div class="channel-info">
+                        <div class="cname">${esc(channel.name)} ${active ? '<span class="badge">使用中</span>' : ''}</div>
+                        <div class="ctype"><i class="fa-solid fa-plug"></i> ${esc(channel.typeLabel)}</div>
+                        <div class="channel-models">
+                            ${channel.models.length
+        ? channel.models.map(m => `<span class="model-chip${active && selection.model === m ? ' active' : ''}" data-model="${esc(m)}"><i class="fa-solid fa-brain"></i> ${esc(m)}</span>`).join('')
+        : '<span class="model-chip" data-model=""><i class="fa-solid fa-brain"></i> 使用默认模型</span>'}
+                        </div>
+                    </div>
+                    <div class="channel-actions">
+                        <button class="menu_button${active ? '' : 'primary'}" data-select="${esc(channel.id)}"><i class="fa-solid fa-check"></i> ${active ? '已选用' : '使用此渠道'}</button>
+                    </div>`;
+
+                card.querySelectorAll('.model-chip').forEach(chip => {
+                    chip.addEventListener('click', () => selectChannel(channel.id, chip.dataset.model || null));
+                });
+
+                card.querySelector('[data-select]')?.addEventListener('click', () => {
+                    selectChannel(channel.id, channel.models[0] ?? null);
+                });
+
+                container.appendChild(card);
+            }
+        }
+
+        // Admin: channel management form
+        const adminBlock = document.getElementById('channelAdmin');
+        adminBlock.style.display = isAdmin ? '' : 'none';
+
+        if (isAdmin) {
+            await loadChannelAdminList();
+        }
+    } catch (error) {
+        hint.innerHTML = esc(error.message);
+        container.innerHTML = '';
+    }
+}
+
+/**
+ * Sets the current user's channel selection.
+ * @param {string} channelId Channel ID
+ * @param {string|null} model Model name
+ * @returns {Promise<void>}
+ */
+async function selectChannel(channelId, model) {
+    try {
+        await api('/api/channels/select', { channelId, model });
+        toast('模型已切换 ✓', 'success');
+        await loadChannels();
+    } catch (error) {
+        toast(error.message, 'error');
+    }
+}
+
+/**
+ * Loads the admin channel management list.
+ * @returns {Promise<void>}
+ */
+async function loadChannelAdminList() {
+    const container = document.getElementById('channelAdminList');
+
+    try {
+        const data = await api('/api/admin/channels/list');
+        const channels = data.channels ?? [];
+
+        if (!channels.length) {
+            container.innerHTML = '<div class="info-card">还没有配置渠道</div>';
+            return;
+        }
+
+        container.innerHTML = '';
+
+        for (const channel of channels) {
+            const row = document.createElement('div');
+            row.className = 'invite-row';
+            row.innerHTML = `
+                <div class="invite-code" style="letter-spacing:0">${esc(channel.name)}</div>
+                <div class="invite-note">
+                    ${esc(channel.typeLabel)} · ${esc(channel.url)} ·
+                    Key: ${esc(channel.keyHint || '未设置')} ·
+                    ${channel.models.length ? `${channel.models.length} 个模型` : '不限模型'} ·
+                    ${channel.enabled ? '已启用' : '已停用'} ·
+                    ${channel.selectedBy} 人使用中
+                </div>
+                <div class="channel-actions">
+                    <button class="menu_button" data-edit="${esc(channel.id)}"><i class="fa-solid fa-pen"></i> 编辑</button>
+                    <button class="menu_button btn-danger" data-del="${esc(channel.id)}"><i class="fa-solid fa-trash"></i> 删除</button>
+                </div>`;
+            container.appendChild(row);
+        }
+
+        container.querySelectorAll('[data-edit]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const channel = channels.find(c => c.id === btn.dataset.edit);
+                if (!channel) return;
+                document.getElementById('chName').value = channel.name;
+                document.getElementById('chType').value = channel.type;
+                document.getElementById('chUrl').value = channel.url;
+                document.getElementById('chKey').value = '';
+                document.getElementById('chKey').placeholder = `API Key（当前：${channel.keyHint || '未设置'}，留空不修改）`;
+                document.getElementById('chModels').value = channel.models.join(', ');
+                document.getElementById('chEnabled').checked = channel.enabled;
+                document.getElementById('chSaveBtn').dataset.editId = channel.id;
+                toast('已载入渠道信息，修改后点击保存', 'success');
+            });
+        });
+
+        container.querySelectorAll('[data-del]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                if (!window.confirm('确定删除这个模型渠道吗？')) {
+                    return;
+                }
+
+                try {
+                    await api('/api/admin/channels/delete', { id: btn.dataset.del });
+                    toast('已删除渠道 ✓', 'success');
+                    await loadChannels();
+                } catch (error) {
+                    toast(error.message, 'error');
+                }
+            });
+        });
+    } catch (error) {
+        container.innerHTML = `<div class="info-card">${esc(error.message)}</div>`;
+    }
+}
+
+/**
+ * Saves a managed channel (create or update).
+ * @returns {Promise<void>}
+ */
+async function saveChannelFromForm() {
+    const name = document.getElementById('chName').value.trim();
+    const url = document.getElementById('chUrl').value.trim();
+
+    if (!name || !url) {
+        return toast('请填写渠道名称和接口地址', 'error');
+    }
+
+    const saveBtn = document.getElementById('chSaveBtn');
+
+    try {
+        await api('/api/admin/channels/save', {
+            id: saveBtn.dataset.editId || undefined,
+            name,
+            type: document.getElementById('chType').value,
+            url,
+            key: document.getElementById('chKey').value.trim(),
+            models: document.getElementById('chModels').value.split(/[,，]/).map(m => m.trim()).filter(Boolean),
+            enabled: document.getElementById('chEnabled').checked,
+        });
+
+        // Reset form
+        delete saveBtn.dataset.editId;
+        for (const id of ['chName', 'chUrl', 'chKey', 'chModels']) {
+            document.getElementById(id).value = '';
+        }
+        document.getElementById('chKey').placeholder = 'API Key（留空则不修改）';
+        document.getElementById('chEnabled').checked = true;
+
+        toast('渠道已保存 ✓', 'success');
+        await loadChannels();
+    } catch (error) {
+        toast(error.message, 'error');
+    }
+}
+
+// ============================================================
 // Site admin: users, quotas, invites
 // ============================================================
 
@@ -1075,6 +1277,9 @@ function bindEvents() {
 
     // Site admin
     document.getElementById('adminCreateInviteBtn').addEventListener('click', createInvite);
+
+    // Managed model channels
+    document.getElementById('chSaveBtn').addEventListener('click', saveChannelFromForm);
 }
 
 // ============================================================

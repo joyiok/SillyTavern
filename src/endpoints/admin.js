@@ -4,6 +4,7 @@ import storage from 'node-persist';
 import { requireAdminMiddleware, getAllUserHandles, toKey, getUserDirectories } from '../users.js';
 import { getUserUsage, getQuotaConfig } from '../quotas.js';
 import { getRegistrationConfig, isInviteRequired, listInvites, createInvite, deleteInvite } from '../registration.js';
+import { listChannels, saveChannel, deleteChannel, toViewModel, getUserSelection } from '../managed-channels.js';
 import { allRecords as allGalleryRecords } from './gallery.js';
 
 export const router = express.Router();
@@ -97,6 +98,62 @@ router.post('/invites/delete', (request, response) => {
         return response.sendStatus(204);
     } catch (error) {
         console.error('Admin invite delete failed:', error);
+        return response.sendStatus(500);
+    }
+});
+
+/**
+ * Lists managed model channels (API keys masked).
+ */
+router.post('/channels/list', async (_request, response) => {
+    try {
+        const channels = listChannels().map(c => toViewModel(c, false));
+
+        // Include per-user selection counts for visibility
+        const handles = await getAllUserHandles();
+        const usage = new Map();
+
+        for (const handle of handles) {
+            const selection = getUserSelection(getUserDirectories(handle));
+
+            if (selection.channelId) {
+                usage.set(selection.channelId, (usage.get(selection.channelId) ?? 0) + 1);
+            }
+        }
+
+        return response.json({ channels: channels.map(c => ({ ...c, selectedBy: usage.get(c.id) ?? 0 })) });
+    } catch (error) {
+        console.error('Admin channel list failed:', error);
+        return response.sendStatus(500);
+    }
+});
+
+/**
+ * Creates or updates a managed model channel.
+ */
+router.post('/channels/save', (request, response) => {
+    try {
+        const channel = saveChannel(request.body ?? {});
+        console.info(`Managed channel saved by ${request.user.profile.handle}: ${channel.name} (${channel.id})`);
+        return response.json(toViewModel(channel, false));
+    } catch (error) {
+        console.error('Admin channel save failed:', error);
+        return response.sendStatus(500);
+    }
+});
+
+/**
+ * Deletes a managed model channel.
+ */
+router.post('/channels/delete', (request, response) => {
+    try {
+        if (!deleteChannel(String(request.body?.id ?? ''))) {
+            return response.sendStatus(404);
+        }
+
+        return response.sendStatus(204);
+    } catch (error) {
+        console.error('Admin channel delete failed:', error);
         return response.sendStatus(500);
     }
 });

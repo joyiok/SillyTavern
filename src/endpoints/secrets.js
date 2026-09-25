@@ -446,6 +446,13 @@ export function deleteSecret(directories, key) {
  * @returns {string} Secret value
  */
 export function readSecret(directories, key, id = null) {
+    // Managed channels: server-side API keys take precedence over user secrets
+    const managedSecrets = directories?.__managedSecrets;
+
+    if (managedSecrets && Object.hasOwn(managedSecrets, key)) {
+        return managedSecrets[key];
+    }
+
     return new SecretManager(directories).readSecret(key, id);
 }
 

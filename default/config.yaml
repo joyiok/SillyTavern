@@ -130,6 +130,16 @@ registration:
   # Password policy
   minPasswordLength: 8
 
+# -- MANAGED MODEL CHANNELS --
+# Admins configure model APIs centrally; regular users can only pick from
+# these channels and cannot bring their own API keys or endpoints.
+managedChannels:
+  # Enable managed model channels
+  enabled: true
+  # Pin non-admin users to the managed channels (URL and API key are forced
+  # server-side; the key is never exposed to clients)
+  restrictNonAdmins: true
+
 # -- QUOTA CONFIGURATION --
 # Per-user resource limits. Set a value to -1 to disable that limit.
 quotas:

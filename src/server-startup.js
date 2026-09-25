@@ -53,6 +53,8 @@ import { router as imageMetadataRouter } from './endpoints/image-metadata.js';
 import { router as volcengineRouter } from './endpoints/volcengine.js';
 import { router as galleryRouter } from './endpoints/gallery.js';
 import { router as adminRouter } from './endpoints/admin.js';
+import { router as channelsRouter } from './endpoints/channels.js';
+import { managedChannelsMiddleware, blockSecretWritesMiddleware } from './managed-channels.js';
 
 /**
  * @typedef {object} ServerStartupResult
@@ -148,12 +150,12 @@ export function setupPrivateEndpoints(app) {
     app.use('/api/quick-replies', quickRepliesRouter);
     app.use('/api/avatars', avatarsRouter);
     app.use('/api/themes', themesRouter);
-    app.use('/api/openai', openAiRouter);
-    app.use('/api/google', googleRouter);
-    app.use('/api/anthropic', anthropicRouter);
+    app.use('/api/openai', managedChannelsMiddleware, openAiRouter);
+    app.use('/api/google', managedChannelsMiddleware, googleRouter);
+    app.use('/api/anthropic', managedChannelsMiddleware, anthropicRouter);
     app.use('/api/tokenizers', tokenizersRouter);
     app.use('/api/presets', presetsRouter);
-    app.use('/api/secrets', secretsRouter);
+    app.use('/api/secrets', blockSecretWritesMiddleware, secretsRouter);
     app.use('/thumbnail', thumbnailRouter);
     app.use('/api/novelai', novelAiRouter);
     app.use('/api/extensions', extensionsRouter);
@@ -175,11 +177,11 @@ export function setupPrivateEndpoints(app) {
     app.use('/api/extra/classify', classifyRouter);
     app.use('/api/extra/caption', captionRouter);
     app.use('/api/search', searchRouter);
-    app.use('/api/backends/text-completions', textCompletionsRouter);
-    app.use('/api/openrouter', openRouterRouter);
+    app.use('/api/backends/text-completions', managedChannelsMiddleware, textCompletionsRouter);
+    app.use('/api/openrouter', managedChannelsMiddleware, openRouterRouter);
     app.use('/api/nanogpt', nanogptRouter);
-    app.use('/api/backends/kobold', koboldRouter);
-    app.use('/api/backends/chat-completions', chatCompletionsRouter);
+    app.use('/api/backends/kobold', managedChannelsMiddleware, koboldRouter);
+    app.use('/api/backends/chat-completions', managedChannelsMiddleware, chatCompletionsRouter);
     app.use('/api/speech', speechRouter);
     app.use('/api/azure', azureRouter);
     app.use('/api/volcengine', volcengineRouter);
@@ -189,6 +191,7 @@ export function setupPrivateEndpoints(app) {
     app.use('/api/image-metadata', imageMetadataRouter);
     app.use('/api/gallery', galleryRouter);
     app.use('/api/admin', adminRouter);
+    app.use('/api/channels', channelsRouter);
 }
 
 /**
