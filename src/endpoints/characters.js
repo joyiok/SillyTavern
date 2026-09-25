@@ -21,6 +21,7 @@ import { readWorldInfoFile } from './worldinfo.js';
 import { invalidateThumbnail } from './thumbnails.js';
 import { importRisuSprites } from './sprites.js';
 import { getUserDirectories } from '../users.js';
+import { checkCharacterQuota, checkStorageQuota } from '../quotas.js';
 import { getChatInfo } from './chats.js';
 import { ByafParser } from '../byaf.js';
 import { CharXParser, persistCharXAssets } from '../charx.js';
@@ -1025,6 +1026,9 @@ router.post('/create', getFileNameValidationFunction('file_name'), async functio
     try {
         if (!request.body) return response.sendStatus(400);
 
+        const quotaError = checkCharacterQuota(request.user.directories) ?? checkStorageQuota(request.user.directories);
+        if (quotaError) return response.status(413).send({ error: quotaError });
+
         request.body.ch_name = sanitize(request.body.ch_name);
 
         const char = JSON.stringify(charaFormatData(request.body, request.user.directories));
@@ -1560,6 +1564,9 @@ function getPreservedName(request) {
 router.post('/import', async function (request, response) {
     if (!request.body || !request.file) return response.sendStatus(400);
 
+    const importQuotaError = checkCharacterQuota(request.user.directories) ?? checkStorageQuota(request.user.directories);
+    if (importQuotaError) return response.status(413).send({ error: importQuotaError });
+
     const uploadPath = path.join(request.file.destination, request.file.filename);
     const format = request.body.file_type;
     const preservedFileName = getPreservedName(request);
@@ -1600,6 +1607,9 @@ router.post('/import', async function (request, response) {
 
 router.post('/duplicate', validateAvatarUrlMiddleware, async function (request, response) {
     try {
+        const quotaError = checkCharacterQuota(request.user.directories) ?? checkStorageQuota(request.user.directories);
+        if (quotaError) return response.status(413).send({ error: quotaError });
+
         if (!request.body.avatar_url) {
             console.warn('avatar URL not found in request body');
             console.debug(request.body);

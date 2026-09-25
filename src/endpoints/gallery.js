@@ -12,6 +12,7 @@ import { getConfigValue } from '../util.js';
 import { read } from '../character-card-parser.js';
 import { getFileNameValidationFunction } from '../middleware/validateFileName.js';
 import { requireAdminMiddleware } from '../users.js';
+import { checkGalleryQuota, checkStorageQuota } from '../quotas.js';
 
 const GALLERY_DIR_NAME = '_gallery';
 const ITEMS_DIR_NAME = 'items';
@@ -127,7 +128,7 @@ async function writeRecord(record) {
  * Reads all item records from disk.
  * @returns {Promise<object[]>} Array of item records
  */
-async function allRecords() {
+export async function allRecords() {
     ensureGalleryDirs();
     const files = await fsPromises.readdir(getItemsDir());
     const jsonFiles = files.filter(f => f.endsWith('.json'));
@@ -446,6 +447,20 @@ router.post('/publish', getFileNameValidationFunction('avatar_url'), async (requ
 
         if (existing) {
             return response.status(409).json({ error: 'This character is already published. Use "update" to publish a new version.', id: existing.id });
+        }
+
+        // Enforce per-user quotas
+        const publishedCount = (await allRecords()).filter(item => item.author === handle && !item.deleted).length;
+        const galleryQuotaError = checkGalleryQuota(publishedCount);
+
+        if (galleryQuotaError) {
+            return response.status(413).json({ error: galleryQuotaError });
+        }
+
+        const storageQuotaError = checkStorageQuota(request.user.directories);
+
+        if (storageQuotaError) {
+            return response.status(413).json({ error: storageQuotaError });
         }
 
         const now = Date.now();

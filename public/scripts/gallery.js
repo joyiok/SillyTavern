@@ -842,6 +842,7 @@ async function init() {
             const me = await response.json();
             isAdmin = me.admin === true;
             document.getElementById('adminBtn').style.display = isAdmin ? '' : 'none';
+            document.getElementById('siteAdminLink').style.display = isAdmin ? '' : 'none';
         }
     } catch {
         // Ignore: the admin button is only a convenience

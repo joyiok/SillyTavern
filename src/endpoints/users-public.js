@@ -5,12 +5,15 @@ import express from 'express';
 import { RateLimiterMemory, RateLimiterRes } from 'rate-limiter-flexible';
 import { getIpAddress, retryAfter } from '../express-common.js';
 import { color, Cache, getConfigValue } from '../util.js';
-import { KEY_PREFIX, getUserAvatar, toKey, getPasswordHash, getPasswordSalt, getAccountVersion } from '../users.js';
+import { KEY_PREFIX, getUserAvatar, toKey, getPasswordHash, getPasswordSalt, getAccountVersion, getAllUserHandles, getUserDirectories, ensurePublicDirectoriesExist } from '../users.js';
+import { checkForNewContent, CONTENT_TYPES } from './content-manager.js';
+import { getPublicRegistrationConfig, isInviteRequired, validateInvite, consumeInvite } from '../registration.js';
 
 const DISCREET_LOGIN = getConfigValue('enableDiscreetLogin', false, 'boolean');
 const PREFER_REAL_IP_HEADER = getConfigValue('rateLimiting.preferRealIpHeader', false, 'boolean');
 const LOGIN_POINTS = getConfigValue('rateLimiting.accountsLoginMaxAttempts', 5, 'number');
 const RECOVER_POINTS = getConfigValue('rateLimiting.accountsRecoverMaxAttempts', 5, 'number');
+const REGISTER_POINTS = getConfigValue('rateLimiting.accountsRegisterMaxAttempts', 5, 'number');
 const MFA_CACHE = new Cache(5 * 60 * 1000);
 
 const generateRecoveryCode = () => Array.from({ length: 6 }, () => crypto.randomInt(0, 10)).join('');
@@ -23,6 +26,101 @@ const loginLimiter = new RateLimiterMemory({
 const recoverLimiter = new RateLimiterMemory({
     points: RECOVER_POINTS > 0 ? RECOVER_POINTS : Number.MAX_SAFE_INTEGER,
     duration: 300,
+});
+const registerLimiter = new RateLimiterMemory({
+    points: REGISTER_POINTS > 0 ? REGISTER_POINTS : Number.MAX_SAFE_INTEGER,
+    duration: 3600,
+});
+
+const HANDLE_REGEXP = /^[a-z0-9][a-z0-9_-]{2,23}$/;
+
+router.get('/registration-config', (_request, response) => {
+    try {
+        return response.json(getPublicRegistrationConfig());
+    } catch (error) {
+        console.error('Registration config failed:', error);
+        return response.sendStatus(500);
+    }
+});
+
+router.post('/register', async (request, response) => {
+    try {
+        const config = getPublicRegistrationConfig();
+
+        if (!config.enabled) {
+            return response.status(403).json({ error: 'Registration is disabled' });
+        }
+
+        const ip = getIpAddress(request, PREFER_REAL_IP_HEADER);
+
+        try {
+            await registerLimiter.consume(ip);
+        } catch {
+            return response.status(429).json({ error: 'Too many registration attempts. Please try again later.' });
+        }
+
+        const handle = String(request.body?.handle ?? '').trim().toLowerCase();
+        const name = String(request.body?.name ?? '').trim();
+        const password = String(request.body?.password ?? '');
+        const inviteCode = String(request.body?.inviteCode ?? '').trim();
+
+        if (!HANDLE_REGEXP.test(handle)) {
+            return response.status(400).json({ error: '用户名需为 3-24 位小写字母、数字、下划线或短横线' });
+        }
+
+        if (!name || name.length > 40) {
+            return response.status(400).json({ error: '昵称不能为空且不超过 40 字' });
+        }
+
+        if (password.length < config.minPasswordLength) {
+            return response.status(400).json({ error: `密码至少需要 ${config.minPasswordLength} 位` });
+        }
+
+        if (isInviteRequired()) {
+            if (!inviteCode) {
+                return response.status(403).json({ error: '此站点需要邀请码才能注册' });
+            }
+
+            if (!validateInvite(inviteCode)) {
+                return response.status(403).json({ error: '邀请码无效或已被使用' });
+            }
+        }
+
+        const handles = await getAllUserHandles();
+
+        if (handles.includes(handle)) {
+            return response.status(409).json({ error: '该用户名已被注册' });
+        }
+
+        const salt = getPasswordSalt();
+        const enabled = !config.requireApproval;
+        const newUser = {
+            handle,
+            name,
+            created: Date.now(),
+            password: getPasswordHash(password, salt),
+            salt,
+            admin: false,
+            enabled,
+        };
+
+        await storage.setItem(toKey(handle), newUser);
+        console.info(`New account registered: ${handle} (approval ${config.requireApproval ? 'required' : 'not required'}) from ${ip}`);
+
+        if (inviteCode) {
+            consumeInvite(inviteCode, handle);
+        }
+
+        // Create user directories with default content
+        await ensurePublicDirectoriesExist();
+        const directories = getUserDirectories(handle);
+        await checkForNewContent([directories], [CONTENT_TYPES.SETTINGS]);
+
+        return response.json({ handle, pendingApproval: config.requireApproval });
+    } catch (error) {
+        console.error('Registration failed:', error);
+        return response.sendStatus(500);
+    }
 });
 
 router.post('/list', async (_request, response) => {

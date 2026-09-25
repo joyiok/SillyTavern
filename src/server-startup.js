@@ -52,6 +52,7 @@ import { router as backupsRouter } from './endpoints/backups.js';
 import { router as imageMetadataRouter } from './endpoints/image-metadata.js';
 import { router as volcengineRouter } from './endpoints/volcengine.js';
 import { router as galleryRouter } from './endpoints/gallery.js';
+import { router as adminRouter } from './endpoints/admin.js';
 
 /**
  * @typedef {object} ServerStartupResult
@@ -187,6 +188,7 @@ export function setupPrivateEndpoints(app) {
     app.use('/api/backups', backupsRouter);
     app.use('/api/image-metadata', imageMetadataRouter);
     app.use('/api/gallery', galleryRouter);
+    app.use('/api/admin', adminRouter);
 }
 
 /**

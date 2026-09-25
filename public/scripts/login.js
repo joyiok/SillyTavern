@@ -5,6 +5,7 @@ import { initAccessibility } from './a11y.js';
  */
 let csrfToken = '';
 let discreetLogin = false;
+let registrationConfig = null;
 
 /**
  * Gets a CSRF token from the server.
@@ -97,6 +98,106 @@ async function sendRecoveryPart2(handle, code, newPassword) {
 
     console.log(`Successfully recovered password for ${handle}!`);
     await performLogin(handle, newPassword);
+}
+
+/**
+ * Fetches the public registration configuration.
+ * @returns {Promise<object|null>} Registration config or null
+ */
+async function getRegistrationConfig() {
+    try {
+        const response = await fetch('/api/users/registration-config');
+        if (!response.ok) {
+            return null;
+        }
+        return await response.json();
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Shows the registration block and hides the login UI.
+ * @returns {void}
+ */
+function showRegisterBlock() {
+    $('#userSelectBlock').find('#userListBlock').hide();
+    $('#registerBlock').show();
+    $('#registerToggleRow').hide();
+    displayError('');
+}
+
+/**
+ * Hides the registration block and restores the login UI.
+ * @returns {void}
+ */
+function hideRegisterBlock() {
+    $('#registerBlock').hide();
+    $('#userListBlock').show();
+    $('#registerToggleRow').show();
+    displayError('');
+}
+
+/**
+ * Attempts to register a new account.
+ * @returns {Promise<void>}
+ */
+async function performRegister() {
+    const handle = String($('#regHandle').val()).trim().toLowerCase();
+    const name = String($('#regName').val()).trim();
+    const password = String($('#regPassword').val());
+    const password2 = String($('#regPassword2').val());
+    const inviteCode = String($('#regInvite').val()).trim();
+    const minLength = registrationConfig?.minPasswordLength ?? 8;
+
+    if (!handle) {
+        return displayError('请输入用户名');
+    }
+
+    if (!name) {
+        return displayError('请输入昵称');
+    }
+
+    if (password.length < minLength) {
+        return displayError(`密码至少需要 ${minLength} 位`);
+    }
+
+    if (password !== password2) {
+        return displayError('两次输入的密码不一致');
+    }
+
+    if (registrationConfig?.inviteRequired && !inviteCode) {
+        return displayError('此站点需要邀请码才能注册');
+    }
+
+    try {
+        const response = await fetch('/api/users/register', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': csrfToken,
+            },
+            body: JSON.stringify({ handle, name, password, inviteCode }),
+        });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+            return displayError(data.error || '注册失败');
+        }
+
+        if (data.pendingApproval) {
+            hideRegisterBlock();
+            displayError('注册成功！账号正在等待管理员审批，通过后即可登录。');
+            return;
+        }
+
+        console.log(`Successfully registered as ${handle}!`);
+        await performLogin(handle, password);
+    } catch (error) {
+        console.error('Error registering:', error);
+        displayError(String(error));
+    }
 }
 
 /**
@@ -272,6 +373,23 @@ function configureDiscreetLogin() {
     csrfToken = await getCsrfToken();
     const userList = await getUserList();
 
+    registrationConfig = await getRegistrationConfig();
+
+    if (registrationConfig?.enabled) {
+        $('#registerToggleRow').show();
+        $('#registerHint').text(registrationConfig.inviteRequired
+            ? '注册需要邀请码'
+            : `密码至少 ${registrationConfig.minPasswordLength} 位`);
+
+        if (registrationConfig.inviteRequired) {
+            $('#regInvite').show();
+        }
+    }
+
+    $('#showRegister').on('click', showRegisterBlock);
+    $('#cancelRegister').on('click', hideRegisterBlock);
+    $('#registerButton').on('click', performRegister);
+
     if (discreetLogin) {
         configureDiscreetLogin();
     } else {
@@ -283,6 +401,8 @@ function configureDiscreetLogin() {
         if (evt.key === 'Enter' && document.activeElement.tagName === 'INPUT') {
             if ($('#passwordRecoveryBlock').is(':visible')) {
                 $('#sendRecovery').trigger('click');
+            } else if ($('#registerBlock').is(':visible')) {
+                $('#registerButton').trigger('click');
             } else {
                 $('#loginButton').trigger('click');
             }

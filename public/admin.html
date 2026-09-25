@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#000000">
+    <title>站点管理 - SillyTavern</title>
+    <link rel="icon" href="favicon.ico">
+    <!-- SillyTavern style stack: the page follows the user's active theme -->
+    <link href="webfonts/NotoSans/stylesheet.css" rel="stylesheet">
+    <link href="webfonts/NotoSansMono/stylesheet.css" rel="stylesheet">
+    <link href="css/fontawesome.min.css" rel="stylesheet">
+    <link href="css/solid.min.css" rel="stylesheet">
+    <link href="css/brands.min.css" rel="stylesheet">
+    <link rel="stylesheet" type="text/css" href="style.css">
+    <link rel="stylesheet" type="text/css" href="css/gallery.css">
+    <style>
+        .admin-section { max-width: 1100px; margin: 0 auto; padding: 22px; }
+        .admin-section h2 { font-size: calc(var(--mainFontSize) * 1.15); margin: 0 0 14px; }
+
+        .user-row {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+            padding: 13px 16px;
+            border: 1px solid var(--SmartThemeBorderColor);
+            border-radius: var(--gal-radius);
+            background: var(--gal-panel-soft);
+            margin-bottom: 10px;
+        }
+
+        .user-id { min-width: 160px; }
+        .user-id .uname { font-weight: 600; }
+        .user-id .uhandle { font-size: calc(var(--mainFontSize) * 0.85); color: var(--gal-dim); }
+
+        .usage-block { display: flex; gap: 18px; flex: 1; flex-wrap: wrap; min-width: 280px; }
+        .usage-item { min-width: 130px; }
+        .usage-item .label { font-size: calc(var(--mainFontSize) * 0.82); color: var(--gal-dim); margin-bottom: 4px; }
+        .usage-bar { height: 6px; border-radius: 4px; background: var(--gal-hover); overflow: hidden; }
+        .usage-bar > div { height: 100%; background: var(--gal-accent); border-radius: 4px; }
+        .usage-bar > div.over { background: var(--gal-danger); }
+        .usage-text { font-size: calc(var(--mainFontSize) * 0.82); margin-top: 3px; }
+
+        .user-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+        .user-actions .menu_button { padding: 3px 10px; }
+
+        .invite-create { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+        .invite-create .text_pole { max-width: 260px; margin: 0; }
+        .invite-create label { display: flex; align-items: center; gap: 6px; font-size: calc(var(--mainFontSize) * 0.9); }
+
+        .invite-row {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 10px 16px;
+            border: 1px solid var(--SmartThemeBorderColor);
+            border-radius: var(--gal-radius);
+            background: var(--gal-panel-soft);
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+        }
+
+        .invite-code {
+            font-family: var(--monoFontFamily);
+            font-size: calc(var(--mainFontSize) * 1.05);
+            letter-spacing: 2px;
+            color: var(--gal-accent);
+            min-width: 110px;
+        }
+
+        .invite-note { color: var(--gal-dim); font-size: calc(var(--mainFontSize) * 0.88); flex: 1; min-width: 140px; }
+
+        .info-card {
+            border: 1px solid var(--SmartThemeBorderColor);
+            border-radius: var(--gal-radius);
+            background: var(--gal-panel-soft);
+            padding: 13px 16px;
+            margin-bottom: 16px;
+            line-height: 1.9;
+            font-size: calc(var(--mainFontSize) * 0.92);
+        }
+    </style>
+</head>
+<body class="st-page">
+    <header id="galleryHeader">
+        <div class="logo"><i class="fa-solid fa-shield-halved"></i>站点管理</div>
+        <div class="tab-strip" id="sectionTabs">
+            <div class="tab active" data-section="users"><i class="fa-solid fa-users"></i> 用户管理</div>
+            <div class="tab" data-section="invites"><i class="fa-solid fa-ticket"></i> 邀请码</div>
+        </div>
+        <div class="actions">
+            <a class="menu_button" href="/gallery.html"><i class="fa-solid fa-store"></i> 作品广场</a>
+            <a class="menu_button" href="/"><i class="fa-solid fa-arrow-left"></i> 返回聊天</a>
+        </div>
+    </header>
+
+    <!-- 用户管理 -->
+    <section class="admin-section" id="sectionUsers">
+        <h2><i class="fa-solid fa-gauge-high" style="color:var(--gal-accent); margin-right:6px;"></i>配额与用量</h2>
+        <div class="info-card" id="quotaInfo">加载中…</div>
+
+        <h2><i class="fa-solid fa-users" style="color:var(--gal-accent); margin-right:6px;"></i>用户列表</h2>
+        <div id="userList">加载中…</div>
+    </section>
+
+    <!-- 邀请码 -->
+    <section class="admin-section" id="sectionInvites" style="display:none;">
+        <h2><i class="fa-solid fa-ticket" style="color:var(--gal-accent); margin-right:6px;"></i>注册设置</h2>
+        <div class="info-card" id="registrationInfo">加载中…</div>
+
+        <h2><i class="fa-solid fa-plus" style="color:var(--gal-accent); margin-right:6px;"></i>生成邀请码</h2>
+        <div class="invite-create">
+            <input type="text" id="inviteNote" class="text_pole" placeholder="备注（例如：给张三）">
+            <label><input type="checkbox" id="inviteSingleUse" checked> 单次使用</label>
+            <button class="menu_button primary" id="createInviteBtn"><i class="fa-solid fa-plus"></i> 生成</button>
+        </div>
+
+        <h2><i class="fa-solid fa-list" style="color:var(--gal-accent); margin-right:6px;"></i>邀请码列表</h2>
+        <div id="inviteList">加载中…</div>
+    </section>
+
+    <div id="toast"></div>
+
+    <script type="module" src="scripts/admin.js"></script>
+</body>
+</html>
