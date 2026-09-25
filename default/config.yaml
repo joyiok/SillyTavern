@@ -104,13 +104,27 @@ requestProxy:
     - localhost
     - 127.0.0.1
 # Enable multi-user mode
-enableUserAccounts: false
+# (DIY fork: enabled by default for multi-tenant hosting)
+enableUserAccounts: true
 # Enable discreet login mode: hides user list on the login screen
 enableDiscreetLogin: false
 # If `basicAuthMode` and this are enabled then
 # the username and passwords for basic auth are the same as those
 # for the individual accounts
 perUserBasicAuth: false
+
+# -- GALLERY CONFIGURATION (作品广场) --
+# Users can share their character cards to a shared gallery.
+# All user data remains isolated per account; sharing is strictly opt-in.
+gallery:
+  # Enable the gallery page and its API
+  enabled: true
+  # Allow users to publish their own characters to the gallery
+  allowPublish: true
+  # Require an admin to approve items before they are listed
+  requireApproval: false
+  # Number of items per page in the gallery
+  pageSize: 24
 
 # -- SSO LOGIN CONFIGURATION --
 sso:

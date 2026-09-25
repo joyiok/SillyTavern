@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>作品广场 - SillyTavern</title>
+    <link rel="icon" href="favicon.ico">
+    <style>
+        :root {
+            --bg: #101216;
+            --bg-panel: #191d24;
+            --bg-card: #20262f;
+            --bg-hover: #2a313c;
+            --border: #303845;
+            --text: #e2e6ee;
+            --text-dim: #9aa4b2;
+            --accent: #6c8cff;
+            --accent-hover: #85a0ff;
+            --danger: #e05b5b;
+            --ok: #4caf7d;
+            --radius: 12px;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+            min-height: 100vh;
+        }
+
+        a { color: var(--accent); text-decoration: none; }
+
+        /* ---- Header ---- */
+        header {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            padding: 14px 24px;
+            background: rgba(16, 18, 22, 0.92);
+            backdrop-filter: blur(8px);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .logo {
+            font-size: 20px;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .logo .icon { margin-right: 6px; }
+
+        .search-box {
+            display: flex;
+            flex: 1;
+            min-width: 200px;
+            max-width: 420px;
+        }
+
+        .search-box input {
+            flex: 1;
+            padding: 9px 14px;
+            border: 1px solid var(--border);
+            border-right: none;
+            border-radius: var(--radius) 0 0 var(--radius);
+            background: var(--bg-panel);
+            color: var(--text);
+            outline: none;
+            font-size: 14px;
+        }
+
+        .search-box button {
+            padding: 0 18px;
+            border: 1px solid var(--accent);
+            border-radius: 0 var(--radius) var(--radius) 0;
+            background: var(--accent);
+            color: #fff;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .tabs { display: flex; gap: 6px; }
+
+        .tab {
+            padding: 8px 16px;
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            background: var(--bg-panel);
+            color: var(--text-dim);
+            cursor: pointer;
+            font-size: 14px;
+            white-space: nowrap;
+        }
+
+        .tab.active {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #fff;
+        }
+
+        .actions { display: flex; gap: 8px; margin-left: auto; }
+
+        .btn {
+            padding: 9px 18px;
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            background: var(--bg-panel);
+            color: var(--text);
+            cursor: pointer;
+            font-size: 14px;
+            white-space: nowrap;
+        }
+
+        .btn:hover { background: var(--bg-hover); }
+
+        .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+        .btn.primary:hover { background: var(--accent-hover); }
+        .btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+        .btn.small { padding: 5px 12px; font-size: 13px; }
+
+        /* ---- Grid ---- */
+        main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+
+        .empty {
+            text-align: center;
+            color: var(--text-dim);
+            padding: 80px 20px;
+            font-size: 15px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+            gap: 20px;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+            cursor: pointer;
+            transition: transform 0.15s, border-color 0.15s;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .card:hover { transform: translateY(-3px); border-color: var(--accent); }
+
+        .card .cover {
+            width: 100%;
+            aspect-ratio: 3 / 4;
+            object-fit: cover;
+            background: var(--bg-hover);
+            display: block;
+        }
+
+        .card .body { padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+
+        .card .title {
+            font-size: 15px;
+            font-weight: 600;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .card .author { font-size: 12px; color: var(--text-dim); }
+
+        .card .stats { display: flex; gap: 12px; font-size: 12px; color: var(--text-dim); margin-top: auto; }
+
+        .tags { display: flex; flex-wrap: wrap; gap: 4px; }
+
+        .tag {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 20px;
+            background: var(--bg-hover);
+            color: var(--text-dim);
+        }
+
+        .badge {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 6px;
+            background: var(--accent);
+            color: #fff;
+        }
+
+        .badge.warn { background: var(--danger); }
+
+        /* ---- Modal ---- */
+        .modal-mask {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.6);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            padding: 20px;
+        }
+
+        .modal-mask.open { display: flex; }
+
+        .modal {
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            width: 100%;
+            max-width: 720px;
+            max-height: 88vh;
+            overflow-y: auto;
+            padding: 24px;
+        }
+
+        .modal h2 { margin: 0 0 16px; font-size: 18px; }
+
+        .modal-close {
+            float: right;
+            cursor: pointer;
+            color: var(--text-dim);
+            font-size: 22px;
+            line-height: 1;
+        }
+
+        .modal-close:hover { color: var(--text); }
+
+        .detail-top { display: flex; gap: 20px; flex-wrap: wrap; }
+
+        .detail-top .cover {
+            width: 220px;
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+
+        .detail-info { flex: 1; min-width: 240px; display: flex; flex-direction: column; gap: 10px; }
+
+        .detail-desc {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 12px 14px;
+            font-size: 14px;
+            line-height: 1.7;
+            white-space: pre-wrap;
+            max-height: 220px;
+            overflow-y: auto;
+        }
+
+        .versions { font-size: 12px; color: var(--text-dim); line-height: 1.9; }
+
+        .form-row { margin-bottom: 14px; }
+
+        .form-row label { display: block; font-size: 13px; color: var(--text-dim); margin-bottom: 6px; }
+
+        .form-row input[type="text"],
+        .form-row textarea,
+        .form-row select {
+            width: 100%;
+            padding: 9px 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--bg-card);
+            color: var(--text);
+            font-size: 14px;
+            outline: none;
+            font-family: inherit;
+        }
+
+        .form-row textarea { resize: vertical; min-height: 90px; }
+
+        .char-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+            padding: 4px;
+        }
+
+        .char-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            cursor: pointer;
+            background: var(--bg-card);
+        }
+
+        .char-item.selected { border-color: var(--accent); background: var(--bg-hover); }
+
+        .char-item img { width: 40px; height: 40px; border-radius: 6px; object-fit: cover; }
+
+        .char-item span {
+            font-size: 13px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
+
+        /* ---- Toast ---- */
+        #toast {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 12px 22px;
+            font-size: 14px;
+            display: none;
+            z-index: 200;
+            box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+        }
+
+        @media (max-width: 720px) {
+            header { padding: 12px 14px; }
+            main { padding: 14px; }
+            .actions { margin-left: 0; width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="logo"><span class="icon">🎨</span>作品广场</div>
+        <div class="search-box">
+            <input id="searchInput" type="text" placeholder="搜索作品、作者、标签…">
+            <button id="searchBtn">搜索</button>
+        </div>
+        <div class="tabs">
+            <div class="tab active" data-sort="new">最新</div>
+            <div class="tab" data-sort="hot">热门</div>
+            <div class="tab" data-sort="downloads">下载榜</div>
+            <div class="tab" data-sort="mine">我的作品</div>
+        </div>
+        <div class="actions">
+            <button class="btn primary" id="publishBtn">＋ 发布作品</button>
+            <button class="btn" id="adminBtn" style="display:none">管理</button>
+            <a class="btn" href="/">← 返回聊天</a>
+        </div>
+    </header>
+
+    <main>
+        <div class="grid" id="grid"></div>
+        <div class="empty" id="empty" style="display:none">这里还什么都没有～ 成为第一个分享作品的人吧！</div>
+    </main>
+
+    <!-- 详情弹窗 -->
+    <div class="modal-mask" id="detailMask">
+        <div class="modal">
+            <span class="modal-close" data-close="detailMask">×</span>
+            <div class="detail-top">
+                <img class="cover" id="detailCover" alt="cover">
+                <div class="detail-info">
+                    <h2 id="detailTitle"></h2>
+                    <div class="tags" id="detailTags"></div>
+                    <div class="versions" id="detailMeta"></div>
+                    <div class="modal-actions" style="justify-content:flex-start; margin-top:auto;">
+                        <button class="btn primary" id="claimBtn">⬇ 领取到我的角色</button>
+                        <button class="btn" id="likeBtn">❤ 点赞</button>
+                        <button class="btn" id="reportBtn">🚩 举报</button>
+                        <button class="btn" id="editBtn" style="display:none">✏ 更新版本</button>
+                        <button class="btn danger" id="deleteBtn" style="display:none">删除</button>
+                        <button class="btn" id="hideBtn" style="display:none">隐藏</button>
+                    </div>
+                </div>
+            </div>
+            <h2 style="font-size:15px; margin:18px 0 8px;">作品简介</h2>
+            <div class="detail-desc" id="detailDesc"></div>
+            <h2 style="font-size:15px; margin:18px 0 8px;">版本历史</h2>
+            <div class="versions" id="detailVersions"></div>
+        </div>
+    </div>
+
+    <!-- 发布弹窗 -->
+    <div class="modal-mask" id="publishMask">
+        <div class="modal">
+            <span class="modal-close" data-close="publishMask">×</span>
+            <h2 id="publishTitle">发布作品</h2>
+            <div class="form-row">
+                <label>选择角色（来自我的角色卡）</label>
+                <div class="char-list" id="charList"></div>
+            </div>
+            <div class="form-row">
+                <label>标题</label>
+                <input type="text" id="pubTitle" maxlength="80" placeholder="给作品起个名字">
+            </div>
+            <div class="form-row">
+                <label>简介</label>
+                <textarea id="pubDesc" placeholder="介绍一下这个角色…"></textarea>
+            </div>
+            <div class="form-row">
+                <label>标签（用逗号分隔）</label>
+                <input type="text" id="pubTags" placeholder="例如：奇幻, 女主角, 治愈">
+            </div>
+            <div class="form-row">
+                <label>可见性</label>
+                <select id="pubVisibility">
+                    <option value="public">公开 — 展示在作品广场</option>
+                    <option value="unlisted">不公开 — 仅自己可见（可稍后公开）</option>
+                </select>
+            </div>
+            <div class="form-row">
+                <label>版本说明（可选）</label>
+                <input type="text" id="pubNote" maxlength="500" placeholder="这次更新了什么？">
+            </div>
+            <div class="modal-actions">
+                <button class="btn" data-close="publishMask">取消</button>
+                <button class="btn primary" id="publishSubmit">发布</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast"></div>
+
+    <script type="module" src="scripts/gallery.js"></script>
+</body>
+</html>
