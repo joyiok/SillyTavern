@@ -107,7 +107,8 @@ requestProxy:
 # (DIY fork: enabled by default for multi-tenant hosting)
 enableUserAccounts: true
 # Enable discreet login mode: hides user list on the login screen
-enableDiscreetLogin: false
+# (DIY fork: enabled by default, username + password login and no user enumeration)
+enableDiscreetLogin: true
 # If `basicAuthMode` and this are enabled then
 # the username and passwords for basic auth are the same as those
 # for the individual accounts
