@@ -49,10 +49,11 @@ async function buildOverlay() {
 }
 
 /**
- * Opens the gallery overlay.
+ * Opens the gallery overlay, optionally on a specific view.
+ * @param {string|null} [view] View to switch to ('gallery', 'channels', 'announcements', 'usage', 'admin')
  * @returns {Promise<void>}
  */
-export async function openGallery() {
+export async function openGallery(view = null) {
     let overlay = document.getElementById(OVERLAY_ID);
 
     if (!overlay) {
@@ -61,6 +62,11 @@ export async function openGallery() {
     }
 
     overlay?.classList.add('open');
+
+    // The gallery module is loaded at this point, so it can switch views
+    if (view) {
+        document.dispatchEvent(new CustomEvent('st-gallery-open', { detail: { view } }));
+    }
 }
 
 /**
@@ -71,15 +77,15 @@ export function closeGallery() {
     document.getElementById(OVERLAY_ID)?.classList.remove('open');
 }
 
-// Bind the main UI menu entry
+// Bind the main UI menu entries
 document.addEventListener('click', (event) => {
     const trigger = event.target instanceof Element
-        ? event.target.closest('#option_gallery, [data-gallery-open]')
+        ? event.target.closest('#option_gallery, [data-gallery-open], [data-gallery-view]')
         : null;
 
     if (trigger) {
         event.preventDefault();
-        openGallery();
+        openGallery(trigger.dataset.galleryView ?? null);
     }
 });
 
@@ -90,7 +96,9 @@ document.addEventListener('keydown', (event) => {
     }
 });
 
-// Allow opening via URL hash (e.g. /#gallery)
-if (window.location.hash === '#gallery') {
-    openGallery();
+// Allow opening via URL hash (e.g. /#gallery or /#announcements)
+const hashView = window.location.hash.replace(/^#/, '');
+
+if (['gallery', 'channels', 'announcements', 'usage', 'admin'].includes(hashView)) {
+    openGallery(hashView === 'gallery' ? null : hashView);
 }

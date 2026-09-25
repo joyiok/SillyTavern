@@ -159,10 +159,28 @@ gallery:
   enabled: true
   # Allow users to publish their own characters to the gallery
   allowPublish: true
+  # Allow users to comment on gallery items
+  allowComments: true
+  # Maximum length of a single comment
+  commentMaxLength: 1000
   # Require an admin to approve items before they are listed
   requireApproval: false
   # Number of items per page in the gallery
   pageSize: 24
+
+# -- SITE ANNOUNCEMENTS (站点公告) --
+# Admins publish notices that every user sees after logging in.
+announcements:
+  enabled: true
+
+# -- USAGE STATISTICS (用量统计) --
+# Tracks per-user LLM requests, tokens and estimated cost.
+usageStats:
+  enabled: true
+  # Number of daily buckets to keep per user
+  retentionDays: 90
+  # Currency symbol used when displaying the estimated cost
+  currency: "¥"
 
 # -- SSO LOGIN CONFIGURATION --
 sso:

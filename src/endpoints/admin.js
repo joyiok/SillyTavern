@@ -5,6 +5,7 @@ import { requireAdminMiddleware, getAllUserHandles, toKey, getUserDirectories } 
 import { getUserUsage, getQuotaConfig } from '../quotas.js';
 import { getRegistrationConfig, isInviteRequired, listInvites, createInvite, deleteInvite } from '../registration.js';
 import { listChannels, saveChannel, deleteChannel, toViewModel, getUserSelection } from '../managed-channels.js';
+import { getUsageConfig, summarizeSiteUsage } from '../usage.js';
 import { allRecords as allGalleryRecords } from './gallery.js';
 
 export const router = express.Router();
@@ -19,6 +20,9 @@ router.post('/users', async (_request, response) => {
         const handles = await getAllUserHandles();
         const galleryItems = await allGalleryRecords();
         const quotas = getQuotaConfig();
+        const usageEnabled = getUsageConfig().enabled;
+        const siteUsage = usageEnabled ? summarizeSiteUsage(handles, 14) : null;
+        const usageByHandle = new Map((siteUsage?.users ?? []).map(u => [u.handle, u]));
 
         const users = await Promise.all(handles.map(async (handle) => {
             const user = await storage.getItem(toKey(handle));
@@ -29,6 +33,7 @@ router.post('/users', async (_request, response) => {
 
             const publishedItems = galleryItems.filter(item => item.author === handle && !item.deleted).length;
             const usage = getUserUsage(getUserDirectories(handle), publishedItems);
+            const llmUsage = usageByHandle.get(handle);
 
             return {
                 handle: user.handle,
@@ -40,12 +45,40 @@ router.post('/users', async (_request, response) => {
                 storageBytes: usage.storageBytes,
                 characters: usage.characters,
                 galleryItems: usage.galleryItems,
+                requests: llmUsage?.totals?.requests ?? 0,
+                totalTokens: llmUsage?.totals?.totalTokens ?? 0,
+                cost: llmUsage?.totals?.cost ?? 0,
+                lastActive: llmUsage?.lastActive ?? 0,
             };
         }));
 
-        return response.json({ users: users.filter(Boolean), quotas });
+        return response.json({
+            users: users.filter(Boolean),
+            quotas,
+            usage: usageEnabled ? { totals: siteUsage.totals, activeUsers: siteUsage.activeUsers, currency: siteUsage.currency } : null,
+        });
     } catch (error) {
         console.error('Admin user list failed:', error);
+        return response.sendStatus(500);
+    }
+});
+
+/**
+ * Returns site-wide LLM usage statistics (tokens, requests, estimated cost).
+ */
+router.post('/usage', async (request, response) => {
+    try {
+        const config = getUsageConfig();
+
+        if (!config.enabled) {
+            return response.json({ enabled: false });
+        }
+
+        const handles = await getAllUserHandles();
+        const days = Math.min(Math.max(parseInt(request.body?.days) || 14, 1), 90);
+        return response.json({ enabled: true, ...summarizeSiteUsage(handles, days) });
+    } catch (error) {
+        console.error('Admin usage stats failed:', error);
         return response.sendStatus(500);
     }
 });

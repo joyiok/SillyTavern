@@ -16,20 +16,32 @@ import { checkGalleryQuota, checkStorageQuota } from '../quotas.js';
 
 const GALLERY_DIR_NAME = '_gallery';
 const ITEMS_DIR_NAME = 'items';
+const COMMENTS_DIR_NAME = 'comments';
+const FAVORITES_FILE_NAME = 'gallery-favorites.json';
 const ID_REGEXP = /^[a-f0-9]{12}$/;
+const COMMENT_ID_REGEXP = /^[a-f0-9]{10}$/;
 const MAX_TAGS = 10;
 const MAX_TAG_LENGTH = 32;
 const MAX_TITLE_LENGTH = 80;
 const MAX_DESCRIPTION_LENGTH = 2000;
 const MAX_REPORT_REASON_LENGTH = 500;
 const MAX_VERSION_HISTORY = 20;
+const MAX_COMMENTS_PER_ITEM = 1000;
+const MAX_RECENT_COMMENTS = 100;
 
 const GALLERY_ENABLED = getConfigValue('gallery.enabled', true);
 const ALLOW_PUBLISH = getConfigValue('gallery.allowPublish', true);
+const ALLOW_COMMENTS = getConfigValue('gallery.allowComments', true);
+const COMMENT_MAX_LENGTH = getConfigValue('gallery.commentMaxLength', 1000);
 const REQUIRE_APPROVAL = getConfigValue('gallery.requireApproval', false);
 const DEFAULT_PAGE_SIZE = getConfigValue('gallery.pageSize', 24);
 
 const publishLimiter = new RateLimiterMemory({
+    points: 30,
+    duration: 3600,
+});
+
+const commentLimiter = new RateLimiterMemory({
     points: 30,
     duration: 3600,
 });
@@ -62,11 +74,20 @@ function getItemsDir() {
 }
 
 /**
+ * Returns the directory that stores item comments.
+ * @returns {string} Path to the comments directory
+ */
+function getCommentsDir() {
+    return path.join(getGalleryRoot(), COMMENTS_DIR_NAME);
+}
+
+/**
  * Creates gallery directories if they do not exist.
  * @returns {void}
  */
 function ensureGalleryDirs() {
     fs.mkdirSync(getItemsDir(), { recursive: true });
+    fs.mkdirSync(getCommentsDir(), { recursive: true });
 }
 
 /**
@@ -85,6 +106,102 @@ function itemJsonPath(id) {
  */
 function itemImagePath(id) {
     return path.join(getItemsDir(), `${id}.png`);
+}
+
+/**
+ * Returns the path to the comments file of an item.
+ * @param {string} id Item ID
+ * @returns {string} Path to the JSON file
+ */
+function itemCommentsPath(id) {
+    return path.join(getCommentsDir(), `${id}.json`);
+}
+
+/**
+ * Reads the comments of an item.
+ * @param {string} id Item ID
+ * @returns {Promise<object[]>} Comments, oldest first
+ */
+async function readComments(id) {
+    if (!isValidId(id)) {
+        return [];
+    }
+
+    try {
+        const raw = await fsPromises.readFile(itemCommentsPath(id), 'utf8');
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed?.comments) ? parsed.comments.filter(c => c && !c.deleted) : [];
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * Writes the comments of an item and keeps the stored count in sync.
+ * The counter only includes comments that are visible to everyone.
+ * @param {string} id Item ID
+ * @param {object[]} comments Comments, oldest first
+ * @returns {Promise<void>}
+ */
+async function persistComments(id, comments) {
+    ensureGalleryDirs();
+    const kept = comments.slice(-MAX_COMMENTS_PER_ITEM);
+    writeFileAtomicSync(itemCommentsPath(id), JSON.stringify({ itemId: id, comments: kept }, null, 2));
+
+    const record = await readRecord(id);
+
+    if (record) {
+        record.commentCount = kept.filter(c => !c.hidden && !c.deleted).length;
+        await writeRecord(record);
+    }
+}
+
+/**
+ * Converts a comment record into a view model.
+ * @param {object} comment Comment record
+ * @param {string} handle Handle of the requesting user
+ * @param {boolean} isAdmin Whether the requesting user is an admin
+ * @returns {object} View model
+ */
+function commentToViewModel(comment, handle, isAdmin) {
+    return {
+        id: comment.id,
+        author: comment.author,
+        authorName: comment.authorName || comment.author,
+        text: comment.text,
+        created: comment.created ?? 0,
+        likes: Array.isArray(comment.likes) ? comment.likes.length : 0,
+        liked: Array.isArray(comment.likes) && comment.likes.includes(handle),
+        hidden: comment.hidden === true,
+        isOwner: comment.author === handle,
+        canModerate: isAdmin,
+    };
+}
+
+/**
+ * Reads the favorite item IDs of a user.
+ * @param {import('../users.js').UserDirectoryList} directories User directories
+ * @returns {string[]} Favorite item IDs
+ */
+function readFavorites(directories) {
+    try {
+        const raw = fs.readFileSync(path.join(directories.root, FAVORITES_FILE_NAME), 'utf8');
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed?.ids) ? parsed.ids.filter(id => typeof id === 'string') : [];
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * Persists the favorite item IDs of a user.
+ * @param {import('../users.js').UserDirectoryList} directories User directories
+ * @param {string[]} ids Favorite item IDs
+ * @returns {void}
+ */
+function writeFavorites(directories, ids) {
+    fs.mkdirSync(directories.root, { recursive: true });
+    writeFileAtomicSync(path.join(directories.root, FAVORITES_FILE_NAME), JSON.stringify({ ids: ids.slice(0, 2000) }, null, 2));
 }
 
 /**
@@ -142,7 +259,7 @@ export async function allRecords() {
  * @returns {Promise<void>}
  */
 async function removeItemFiles(id) {
-    for (const p of [itemJsonPath(id), itemImagePath(id)]) {
+    for (const p of [itemJsonPath(id), itemImagePath(id), itemCommentsPath(id)]) {
         try {
             await fsPromises.unlink(p);
         } catch {
@@ -156,15 +273,18 @@ async function removeItemFiles(id) {
  * @param {object} record Item record
  * @param {string} handle Handle of the requesting user
  * @param {boolean} isAdmin Whether the requesting user is an admin
+ * @param {string[]} [favorites] Item IDs favorited by the requesting user
  * @returns {object} View model
  */
-function toViewModel(record, handle, isAdmin) {
+function toViewModel(record, handle, isAdmin, favorites = []) {
     const { reports, likes, claimedBy, ...rest } = record;
     return {
         ...rest,
         likes: Array.isArray(likes) ? likes.length : 0,
         liked: Array.isArray(likes) && likes.includes(handle),
         claimed: Array.isArray(claimedBy) && claimedBy.includes(handle),
+        favorited: favorites.includes(record.id),
+        comments: Number(record.commentCount) || 0,
         isOwner: record.author === handle,
         reports: isAdmin ? (reports ?? []) : (reports?.length ?? 0),
     };
@@ -282,7 +402,8 @@ router.post('/list', async (request, response) => {
     try {
         const handle = request.user.profile.handle;
         const isAdmin = request.user.profile.admin === true;
-        const { q, sort, tag, mine, page, limit } = request.body ?? {};
+        const { q, sort, tag, mine, favorites: favoritesOnly, page, limit } = request.body ?? {};
+        const favorites = readFavorites(request.user.directories);
         const pageSize = Math.min(Math.max(parseInt(limit) || DEFAULT_PAGE_SIZE, 1), 100);
         const currentPage = Math.max(parseInt(page) || 1, 1);
         const query = typeof q === 'string' ? q.trim().toLowerCase() : '';
@@ -295,6 +416,10 @@ router.post('/list', async (request, response) => {
 
         if (mine === true) {
             items = items.filter(item => item.author === handle);
+        }
+
+        if (favoritesOnly === true) {
+            items = items.filter(item => favorites.includes(item.id));
         }
 
         if (typeof tag === 'string' && tag) {
@@ -314,6 +439,7 @@ router.post('/list', async (request, response) => {
             new: (a, b) => (b.updated ?? b.created ?? 0) - (a.updated ?? a.created ?? 0),
             hot: (a, b) => ((b.likes?.length ?? 0) * 3 + (b.downloads ?? 0)) - ((a.likes?.length ?? 0) * 3 + (a.downloads ?? 0)),
             downloads: (a, b) => (b.downloads ?? 0) - (a.downloads ?? 0),
+            comments: (a, b) => (b.commentCount ?? 0) - (a.commentCount ?? 0),
         };
 
         items.sort(sorters[sort] ?? sorters.new);
@@ -323,10 +449,11 @@ router.post('/list', async (request, response) => {
         const paged = items.slice(start, start + pageSize);
 
         return response.json({
-            items: paged.map(item => toViewModel(item, handle, isAdmin)),
+            items: paged.map(item => toViewModel(item, handle, isAdmin, favorites)),
             total,
             page: currentPage,
             pages: Math.max(Math.ceil(total / pageSize), 1),
+            favorites: favorites.length,
         });
     } catch (error) {
         console.error('Gallery list failed:', error);
@@ -354,7 +481,7 @@ router.post('/item', async (request, response) => {
             return response.sendStatus(404);
         }
 
-        return response.json(toViewModel(record, handle, isAdmin));
+        return response.json(toViewModel(record, handle, isAdmin, readFavorites(request.user.directories)));
     } catch (error) {
         console.error('Gallery item failed:', error);
         return response.sendStatus(500);
@@ -483,6 +610,7 @@ router.post('/publish', getFileNameValidationFunction('avatar_url'), async (requ
             likes: [],
             claimedBy: [],
             reports: [],
+            commentCount: 0,
             hidden: REQUIRE_APPROVAL,
             deleted: false,
         };
@@ -708,6 +836,253 @@ router.post('/admin/delete', requireAdminMiddleware, async (request, response) =
         return response.sendStatus(204);
     } catch (error) {
         console.error('Gallery admin delete failed:', error);
+        return response.sendStatus(500);
+    }
+});
+
+/**
+ * Verifies that a user may see an item (and therefore its comments).
+ * @param {object} record Item record
+ * @param {string} handle Handle of the requesting user
+ * @param {boolean} isAdmin Whether the requesting user is an admin
+ * @returns {boolean} True if the item is visible
+ */
+function canView(record, handle, isAdmin) {
+    if (!record || record.deleted) {
+        return false;
+    }
+
+    if (record.author === handle || isAdmin) {
+        return true;
+    }
+
+    return !record.hidden && record.visibility === 'public';
+}
+
+router.post('/comments', async (request, response) => {
+    try {
+        const record = await readRecord(request.body?.id);
+        const handle = request.user.profile.handle;
+        const isAdmin = request.user.profile.admin === true;
+
+        if (!canView(record, handle, isAdmin)) {
+            return response.sendStatus(404);
+        }
+
+        const comments = await readComments(record.id);
+        const visible = comments.filter(c => !c.hidden || c.author === handle || isAdmin);
+
+        return response.json({
+            comments: visible.map(c => commentToViewModel(c, handle, isAdmin)),
+            total: comments.filter(c => !c.hidden).length,
+            allowComments: ALLOW_COMMENTS,
+            maxLength: COMMENT_MAX_LENGTH,
+        });
+    } catch (error) {
+        console.error('Gallery comments failed:', error);
+        return response.sendStatus(500);
+    }
+});
+
+router.post('/comment', async (request, response) => {
+    try {
+        const record = await readRecord(request.body?.id);
+        const handle = request.user.profile.handle;
+        const isAdmin = request.user.profile.admin === true;
+
+        if (!canView(record, handle, isAdmin)) {
+            return response.sendStatus(404);
+        }
+
+        if (!ALLOW_COMMENTS) {
+            return response.status(403).json({ error: '评论功能已被管理员关闭' });
+        }
+
+        try {
+            await commentLimiter.consume(handle);
+        } catch {
+            return response.status(429).json({ error: '评论太频繁了，请稍后再试' });
+        }
+
+        const text = String(request.body?.text ?? '').trim().slice(0, COMMENT_MAX_LENGTH);
+
+        if (!text) {
+            return response.status(400).json({ error: '评论内容不能为空' });
+        }
+
+        const comments = await readComments(record.id);
+
+        // Basic spam guard: no identical consecutive comment from the same user
+        const last = comments.filter(c => c.author === handle).at(-1);
+
+        if (last && last.text === text && Date.now() - (last.created ?? 0) < 60 * 1000) {
+            return response.status(409).json({ error: '刚刚已经发过一样的评论了' });
+        }
+
+        const comment = {
+            id: crypto.randomBytes(5).toString('hex'),
+            author: handle,
+            authorName: request.user.profile.name || handle,
+            text,
+            created: Date.now(),
+            likes: [],
+            hidden: false,
+            deleted: false,
+        };
+
+        await persistComments(record.id, [...comments, comment]);
+        return response.json({
+            comment: commentToViewModel(comment, handle, isAdmin),
+            total: comments.filter(c => !c.hidden).length + 1,
+        });
+    } catch (error) {
+        console.error('Gallery comment failed:', error);
+        return response.status(500).json({ error: error.message || 'Comment failed' });
+    }
+});
+
+router.post('/comment/delete', async (request, response) => {
+    try {
+        const itemId = String(request.body?.id ?? '');
+        const commentId = String(request.body?.commentId ?? '');
+        const record = await readRecord(itemId);
+
+        if (!record) {
+            return response.sendStatus(404);
+        }
+
+        const handle = request.user.profile.handle;
+        const isAdmin = request.user.profile.admin === true;
+        const comments = await readComments(itemId);
+        const comment = comments.find(c => c.id === commentId && COMMENT_ID_REGEXP.test(commentId));
+
+        if (!comment) {
+            return response.sendStatus(404);
+        }
+
+        if (comment.author !== handle && !isAdmin && record.author !== handle) {
+            return response.sendStatus(403);
+        }
+
+        await persistComments(itemId, comments.filter(c => c.id !== commentId));
+        console.info(`Gallery comment deleted: ${commentId} on ${itemId} by ${handle}`);
+        return response.json({ total: comments.filter(c => c.id !== commentId && !c.hidden).length });
+    } catch (error) {
+        console.error('Gallery comment delete failed:', error);
+        return response.sendStatus(500);
+    }
+});
+
+router.post('/comment/like', async (request, response) => {
+    try {
+        const itemId = String(request.body?.id ?? '');
+        const commentId = String(request.body?.commentId ?? '');
+        const record = await readRecord(itemId);
+        const handle = request.user.profile.handle;
+        const isAdmin = request.user.profile.admin === true;
+
+        if (!canView(record, handle, isAdmin)) {
+            return response.sendStatus(404);
+        }
+
+        const comments = await readComments(itemId);
+        const comment = comments.find(c => c.id === commentId);
+
+        if (!comment) {
+            return response.sendStatus(404);
+        }
+
+        comment.likes = Array.isArray(comment.likes) ? comment.likes : [];
+
+        if (comment.likes.includes(handle)) {
+            comment.likes = comment.likes.filter(h => h !== handle);
+        } else {
+            comment.likes.push(handle);
+        }
+
+        await persistComments(itemId, comments);
+        return response.json(commentToViewModel(comment, handle, isAdmin));
+    } catch (error) {
+        console.error('Gallery comment like failed:', error);
+        return response.sendStatus(500);
+    }
+});
+
+router.post('/comment/hide', requireAdminMiddleware, async (request, response) => {
+    try {
+        const itemId = String(request.body?.id ?? '');
+        const commentId = String(request.body?.commentId ?? '');
+        const comments = await readComments(itemId);
+        const comment = comments.find(c => c.id === commentId);
+
+        if (!comment) {
+            return response.sendStatus(404);
+        }
+
+        comment.hidden = request.body?.hidden !== false;
+        await persistComments(itemId, comments);
+        console.info(`Gallery comment ${comment.hidden ? 'hidden' : 'shown'}: ${commentId} on ${itemId}`);
+        return response.json(commentToViewModel(comment, request.user.profile.handle, true));
+    } catch (error) {
+        console.error('Gallery comment hide failed:', error);
+        return response.sendStatus(500);
+    }
+});
+
+router.post('/favorite', async (request, response) => {
+    try {
+        const record = await readRecord(request.body?.id);
+
+        if (!record || record.deleted) {
+            return response.sendStatus(404);
+        }
+
+        const handle = request.user.profile.handle;
+        const favorites = readFavorites(request.user.directories);
+        const favorited = !favorites.includes(record.id);
+        const next = favorited ? [...favorites, record.id] : favorites.filter(id => id !== record.id);
+
+        writeFavorites(request.user.directories, next);
+        console.debug(`Gallery item ${favorited ? 'favorited' : 'unfavorited'}: ${record.id} by ${handle}`);
+        return response.json({ favorited, favorites: next.length });
+    } catch (error) {
+        console.error('Gallery favorite failed:', error);
+        return response.sendStatus(500);
+    }
+});
+
+router.post('/admin/comments', requireAdminMiddleware, async (request, response) => {
+    try {
+        const handle = request.user.profile.handle;
+        const items = await allRecords();
+        const titles = new Map(items.map(item => [item.id, item.title]));
+        ensureGalleryDirs();
+
+        const files = await fsPromises.readdir(getCommentsDir()).catch(() => []);
+        const comments = [];
+
+        for (const file of files.filter(f => f.endsWith('.json'))) {
+            const itemId = file.replace('.json', '');
+
+            for (const comment of await readComments(itemId)) {
+                comments.push({
+                    ...commentToViewModel(comment, handle, true),
+                    itemId,
+                    itemTitle: titles.get(itemId) ?? '（已删除的作品）',
+                });
+            }
+        }
+
+        comments.sort((a, b) => (b.created ?? 0) - (a.created ?? 0));
+
+        const hiddenOnly = request.body?.hidden === true;
+        return response.json({
+            comments: (hiddenOnly ? comments.filter(c => c.hidden) : comments).slice(0, MAX_RECENT_COMMENTS),
+            total: comments.length,
+            hidden: comments.filter(c => c.hidden).length,
+        });
+    } catch (error) {
+        console.error('Gallery admin comments failed:', error);
         return response.sendStatus(500);
     }
 });

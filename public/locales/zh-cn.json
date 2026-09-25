@@ -1485,6 +1485,7 @@
     "Start new chat": "开始新聊天",
     "Manage chat files": "管理聊天文件",
     "Gallery": "作品广场",
+    "Announcements": "站点公告",
     "Delete messages": "删除消息",
     "Tap to close": "点击关闭",
     "Couldn't get CSRF token. Please refresh the page.": "无法获取 CSRF 令牌。请刷新页面。",

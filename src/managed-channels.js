@@ -100,6 +100,8 @@ export function toViewModel(channel, withKey = false) {
         typeLabel: getChannelTypeLabel(channel.type),
         url: channel.url,
         models: channel.models ?? [],
+        priceInput: Number(channel.priceInput) || 0,
+        priceOutput: Number(channel.priceOutput) || 0,
         enabled: channel.enabled !== false,
         created: channel.created ?? 0,
         keyHint: channel.key ? `${channel.key.slice(0, 3)}…${channel.key.slice(-3)}` : '',
@@ -126,6 +128,9 @@ export function saveChannel(input) {
         models: Array.isArray(input.models)
             ? [...new Set(input.models.map(m => String(m).trim().slice(0, 100)).filter(Boolean))].slice(0, 200)
             : [],
+        // Optional pricing (per 1M tokens), used for the usage statistics
+        priceInput: Math.max(Number(input.priceInput) || 0, 0),
+        priceOutput: Math.max(Number(input.priceOutput) || 0, 0),
         enabled: input.enabled !== false,
         created: existing?.created ?? Date.now(),
     };
@@ -198,19 +203,19 @@ export function setUserSelection(directories, selection) {
 }
 
 /**
- * Resolves the channel that must serve a user's requests.
+ * Resolves the channel that serves a user's requests.
  * Falls back to the first enabled channel when the user has no valid selection.
- * @param {import('express').Request} request Express request
+ * @param {import('./users.js').UserDirectoryList} directories User directories
  * @returns {object|null} Channel record or null when no channels are configured
  */
-function resolveChannel(request) {
+export function resolveUserChannel(directories) {
     const enabled = listChannels().filter(c => c.enabled !== false);
 
     if (!enabled.length) {
         return null;
     }
 
-    const selection = getUserSelection(request.user.directories);
+    const selection = getUserSelection(directories);
     return enabled.find(c => c.id === selection.channelId) ?? enabled[0];
 }
 
@@ -252,7 +257,7 @@ export function managedChannelsMiddleware(request, response, next) {
             return next();
         }
 
-        const channel = resolveChannel(request);
+        const channel = resolveUserChannel(request.user.directories);
 
         if (!channel) {
             // No channels configured: fall back to unrestricted behavior

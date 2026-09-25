@@ -54,7 +54,24 @@ import { router as volcengineRouter } from './endpoints/volcengine.js';
 import { router as galleryRouter } from './endpoints/gallery.js';
 import { router as adminRouter } from './endpoints/admin.js';
 import { router as channelsRouter } from './endpoints/channels.js';
+import { router as announcementsRouter } from './endpoints/announcements.js';
+import { router as usageRouter } from './endpoints/usage.js';
 import { managedChannelsMiddleware, blockSecretWritesMiddleware } from './managed-channels.js';
+import { usageTrackingMiddleware } from './usage.js';
+
+/**
+ * Endpoints that generate text with an LLM. Only these are accounted, so
+ * auxiliary calls (status, model lists, image or voice generation) do not
+ * pollute the statistics. The middleware must run before the routers.
+ */
+const LLM_USAGE_PATHS = [
+    '/api/backends/chat-completions/generate',
+    '/api/backends/text-completions/generate',
+    '/api/backends/kobold/generate',
+    '/api/novelai/generate',
+    '/api/azure/generate',
+    '/api/horde/generate-text',
+];
 
 /**
  * @typedef {object} ServerStartupResult
@@ -142,6 +159,7 @@ export function redirectDeprecatedEndpoints(app) {
  * @param {import('express').Express} app The Express app to use
  */
 export function setupPrivateEndpoints(app) {
+    app.use(LLM_USAGE_PATHS, usageTrackingMiddleware);
     app.use('/', userDataRouter);
     app.use('/api/users', usersPrivateRouter);
     app.use('/api/users', usersAdminRouter);
@@ -192,6 +210,8 @@ export function setupPrivateEndpoints(app) {
     app.use('/api/gallery', galleryRouter);
     app.use('/api/admin', adminRouter);
     app.use('/api/channels', channelsRouter);
+    app.use('/api/announcements', announcementsRouter);
+    app.use('/api/usage', usageRouter);
 }
 
 /**

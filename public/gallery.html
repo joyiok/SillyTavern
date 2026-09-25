@@ -22,6 +22,8 @@
         <div class="tab-strip" id="viewTabs">
             <div class="tab active" data-view="gallery"><i class="fa-solid fa-images"></i> 广场</div>
             <div class="tab" data-view="channels" id="channelsViewTab"><i class="fa-solid fa-microchip"></i> 模型</div>
+            <div class="tab" data-view="announcements" id="announcementsViewTab"><i class="fa-solid fa-bullhorn"></i> 公告<span class="tab-badge" id="announcementsBadge" style="display:none"></span></div>
+            <div class="tab" data-view="usage" id="usageViewTab"><i class="fa-solid fa-chart-line"></i> 用量</div>
             <div class="tab" data-view="admin" id="adminViewTab" style="display:none"><i class="fa-solid fa-shield-halved"></i> 站点管理</div>
         </div>
 
@@ -34,6 +36,8 @@
             <div class="tab active" data-sort="new"><i class="fa-solid fa-clock"></i> 最新</div>
             <div class="tab" data-sort="hot"><i class="fa-solid fa-fire"></i> 热门</div>
             <div class="tab" data-sort="downloads"><i class="fa-solid fa-download"></i> 下载榜</div>
+            <div class="tab" data-sort="comments"><i class="fa-solid fa-comments"></i> 讨论最多</div>
+            <div class="tab" data-sort="favorites"><i class="fa-solid fa-star"></i> 我的收藏</div>
             <div class="tab" data-sort="mine"><i class="fa-solid fa-user"></i> 我的作品</div>
         </div>
 
@@ -82,10 +86,64 @@
                     <input type="text" id="chUrl" class="text_pole" placeholder="接口地址（例如：https://api.example.com/v1）">
                     <input type="password" id="chKey" class="text_pole" placeholder="API Key（留空则不修改）" autocomplete="new-password">
                     <input type="text" id="chModels" class="text_pole" placeholder="可用模型（逗号分隔，留空 = 不限制）">
+                    <div class="price-row">
+                        <input type="number" id="chPriceInput" class="text_pole" min="0" step="0.01" placeholder="输入价格 / 1M tokens（可选）">
+                        <input type="number" id="chPriceOutput" class="text_pole" min="0" step="0.01" placeholder="输出价格 / 1M tokens（可选）">
+                    </div>
                     <label><input type="checkbox" id="chEnabled" checked> 启用</label>
                     <button class="menu_button primary" id="chSaveBtn"><i class="fa-solid fa-floppy-disk"></i> 保存渠道</button>
                 </div>
                 <div id="channelAdminList"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ 公告视图 ============ -->
+    <div id="viewAnnouncements" style="display:none">
+        <div class="admin-section">
+            <h2><i class="fa-solid fa-bullhorn" style="color:var(--gal-accent); margin-right:6px;"></i>站点公告
+                <button class="menu_button" id="announcementsReadBtn" style="float:right; padding:3px 12px;"><i class="fa-solid fa-check-double"></i> 全部标为已读</button>
+            </h2>
+            <div id="announcementList">加载中…</div>
+
+            <div id="announcementAdmin" style="display:none">
+                <h2><i class="fa-solid fa-pen" style="color:var(--gal-accent); margin-right:6px;"></i>发布公告</h2>
+                <div class="channel-form">
+                    <input type="text" id="anTitle" class="text_pole" maxlength="120" placeholder="公告标题（必填）">
+                    <select id="anLevel" class="text_pole">
+                        <option value="info">普通</option>
+                        <option value="notice">通知</option>
+                        <option value="important">重要</option>
+                    </select>
+                    <textarea id="anBody" class="text_pole an-body" maxlength="5000" placeholder="公告内容：维护通知、新功能、活动规则…"></textarea>
+                    <label><input type="checkbox" id="anPinned"> 置顶显示</label>
+                    <label><input type="checkbox" id="anEnabled" checked> 对用户可见</label>
+                    <button class="menu_button primary" id="anSaveBtn"><i class="fa-solid fa-bullhorn"></i> 发布公告</button>
+                </div>
+
+                <h2><i class="fa-solid fa-list" style="color:var(--gal-accent); margin-right:6px;"></i>全部公告</h2>
+                <div id="announcementAdminList">加载中…</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ 用量视图 ============ -->
+    <div id="viewUsage" style="display:none">
+        <div class="admin-section">
+            <h2><i class="fa-solid fa-chart-line" style="color:var(--gal-accent); margin-right:6px;"></i>我的用量</h2>
+            <div class="info-card" id="myUsageHint">加载中…</div>
+            <div class="stat-cards" id="myUsageCards"></div>
+            <div class="chart-title">近 14 天 token 消耗</div>
+            <div class="chart" id="myUsageChart"></div>
+            <div id="myUsageModels"></div>
+
+            <div id="siteUsageBlock" style="display:none">
+                <h2><i class="fa-solid fa-globe" style="color:var(--gal-accent); margin-right:6px;"></i>全站用量</h2>
+                <div class="stat-cards" id="siteUsageCards"></div>
+                <div class="chart-title">近 14 天全站 token 消耗</div>
+                <div class="chart" id="siteUsageChart"></div>
+                <div id="siteUsageModels"></div>
+                <div id="siteUsageUsers"></div>
             </div>
         </div>
     </div>
@@ -111,6 +169,10 @@
 
             <h2><i class="fa-solid fa-list" style="color:var(--gal-accent); margin-right:6px;"></i>邀请码列表</h2>
             <div id="adminInviteList">加载中…</div>
+
+            <h2><i class="fa-solid fa-comments" style="color:var(--gal-accent); margin-right:6px;"></i>评论管理</h2>
+            <div class="info-card" id="adminCommentInfo">加载中…</div>
+            <div id="adminCommentList"></div>
         </div>
     </div>
 
@@ -128,6 +190,7 @@
                     <div class="modal-actions" style="justify-content:flex-start; margin-top:auto;">
                         <button class="menu_button primary" id="claimBtn"><i class="fa-solid fa-cloud-arrow-down"></i> 领取到我的角色</button>
                         <button class="menu_button" id="likeBtn"><i class="fa-solid fa-heart"></i> 点赞</button>
+                        <button class="menu_button" id="favoriteBtn"><i class="fa-solid fa-star"></i> 收藏</button>
                         <button class="menu_button" id="reportBtn"><i class="fa-solid fa-flag"></i> 举报</button>
                         <button class="menu_button" id="editBtn" style="display:none"><i class="fa-solid fa-pen"></i> 更新版本</button>
                         <button class="menu_button" id="hideBtn" style="display:none"><i class="fa-solid fa-eye-slash"></i> 隐藏</button>
@@ -142,6 +205,16 @@
             <div id="detailReportsBlock" style="display:none">
                 <h3 style="color:var(--gal-danger)"><i class="fa-solid fa-flag"></i> 举报记录</h3>
                 <div class="report-list" id="detailReports"></div>
+            </div>
+
+            <h3><i class="fa-solid fa-comments" style="color:var(--gal-accent)"></i> 评论 <span class="counter" id="commentTotal"></span></h3>
+            <div class="comment-list" id="commentList"></div>
+            <div class="comment-form" id="commentForm">
+                <textarea id="commentInput" class="text_pole" maxlength="1000" placeholder="友善发言，聊聊这个角色的使用体验…"></textarea>
+                <div class="comment-actions">
+                    <span class="counter" id="commentCounter">0 / 1000</span>
+                    <button class="menu_button primary" id="commentSubmit"><i class="fa-solid fa-paper-plane"></i> 发表评论</button>
+                </div>
             </div>
         </div>
     </div>

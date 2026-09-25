@@ -16,6 +16,8 @@ let currentItem = null;
 let publishingItemId = null;
 let selectedChar = null;
 let myCharacters = [];
+let commentMaxLength = 1000;
+let unreadAnnouncements = 0;
 const publishTags = [];
 
 // ============================================================
@@ -199,8 +201,8 @@ function closeModal(id) {
 // ============================================================
 
 /**
- * Switches between the gallery view and the site admin view.
- * @param {string} view 'gallery' or 'admin'
+ * Switches between the gallery, model, announcements, usage and admin views.
+ * @param {string} view View name
  * @returns {Promise<void>}
  */
 async function switchView(view) {
@@ -212,17 +214,29 @@ async function switchView(view) {
         t.classList.toggle('active', t.dataset.view === view);
     });
 
-    document.getElementById('viewGallery').style.display = view === 'gallery' ? '' : 'none';
-    document.getElementById('viewAdmin').style.display = view === 'admin' ? '' : 'none';
-    document.getElementById('viewChannels').style.display = view === 'channels' ? '' : 'none';
+    for (const [name, id] of Object.entries({
+        gallery: 'viewGallery',
+        channels: 'viewChannels',
+        announcements: 'viewAnnouncements',
+        usage: 'viewUsage',
+        admin: 'viewAdmin',
+    })) {
+        document.getElementById(id).style.display = view === name ? '' : 'none';
+    }
+
     document.getElementById('searchBox').style.display = view === 'gallery' ? '' : 'none';
     document.getElementById('sortTabs').style.display = view === 'gallery' ? '' : 'none';
     document.getElementById('publishBtn').style.display = view === 'gallery' ? '' : 'none';
+    document.getElementById('adminToggleBtn').style.display = isAdmin && view === 'gallery' ? '' : 'none';
 
     if (view === 'admin') {
-        await Promise.all([loadSiteUsers(), loadRegistrationView()]);
+        await Promise.all([loadSiteUsers(), loadRegistrationView(), loadAdminComments()]);
     } else if (view === 'channels') {
         await loadChannels();
+    } else if (view === 'announcements') {
+        await loadAnnouncements(true);
+    } else if (view === 'usage') {
+        await loadUsage();
     } else {
         await loadList();
     }
@@ -250,6 +264,9 @@ async function loadList() {
 
         if (currentSort === 'mine') {
             body.mine = true;
+            body.sort = 'new';
+        } else if (currentSort === 'favorites') {
+            body.favorites = true;
             body.sort = 'new';
         } else {
             body.sort = currentSort;
@@ -331,6 +348,8 @@ function renderCard(item) {
             <div class="stats">
                 <span><i class="fa-solid fa-heart"></i>${item.likes ?? 0}</span>
                 <span><i class="fa-solid fa-download"></i>${item.downloads ?? 0}</span>
+                <span><i class="fa-solid fa-comments"></i>${item.comments ?? 0}</span>
+                ${item.favorited ? '<span class="badge fav"><i class="fa-solid fa-star"></i></span>' : ''}
                 ${Array.isArray(item.reports) && item.reports.length ? `<span class="badge warn"><i class="fa-solid fa-flag"></i> ${item.reports.length}</span>` : ''}
                 ${item.hidden ? '<span class="badge warn">已隐藏</span>' : ''}
                 ${item.visibility === 'unlisted' ? '<span class="badge">不公开</span>' : ''}
@@ -363,6 +382,7 @@ async function openDetail(itemId) {
             版本：v${esc(item.version)} ·
             <i class="fa-solid fa-heart"></i> ${item.likes} ·
             <i class="fa-solid fa-download"></i> ${item.downloads} ·
+            <i class="fa-solid fa-comments"></i> ${item.comments ?? 0} ·
             发布于 ${new Date(item.created).toLocaleDateString()}`;
 
         document.getElementById('detailVersions').innerHTML = (item.versions ?? []).slice().reverse()
@@ -390,6 +410,11 @@ async function openDetail(itemId) {
             ? '<i class="fa-solid fa-cloud-arrow-down"></i> 再领一份'
             : '<i class="fa-solid fa-cloud-arrow-down"></i> 领取到我的角色';
 
+        const favoriteBtn = document.getElementById('favoriteBtn');
+        favoriteBtn.innerHTML = item.favorited
+            ? '<i class="fa-solid fa-star" style="color:var(--gal-accent)"></i> 已收藏'
+            : '<i class="fa-solid fa-star" style="opacity:0.55"></i> 收藏';
+
         const ownerOrAdmin = item.isOwner || isAdmin;
         document.getElementById('editBtn').style.display = item.isOwner ? '' : 'none';
         document.getElementById('deleteBtn').style.display = ownerOrAdmin ? '' : 'none';
@@ -400,6 +425,7 @@ async function openDetail(itemId) {
         document.getElementById('reportBtn').style.display = item.isOwner ? 'none' : '';
 
         openModal('detailMask');
+        await loadComments(item.id);
     } catch (error) {
         toast(error.message, 'error');
     }
@@ -796,6 +822,7 @@ async function loadChannelAdminList() {
                     ${esc(channel.typeLabel)} · ${esc(channel.url)} ·
                     Key: ${esc(channel.keyHint || '未设置')} ·
                     ${channel.models.length ? `${channel.models.length} 个模型` : '不限模型'} ·
+                    ${channel.priceInput || channel.priceOutput ? `定价 ${channel.priceInput}/${channel.priceOutput} 每 1M tokens · ` : ''}
                     ${channel.enabled ? '已启用' : '已停用'} ·
                     ${channel.selectedBy} 人使用中
                 </div>
@@ -816,6 +843,8 @@ async function loadChannelAdminList() {
                 document.getElementById('chKey').value = '';
                 document.getElementById('chKey').placeholder = `API Key（当前：${channel.keyHint || '未设置'}，留空不修改）`;
                 document.getElementById('chModels').value = channel.models.join(', ');
+                document.getElementById('chPriceInput').value = channel.priceInput || '';
+                document.getElementById('chPriceOutput').value = channel.priceOutput || '';
                 document.getElementById('chEnabled').checked = channel.enabled;
                 document.getElementById('chSaveBtn').dataset.editId = channel.id;
                 toast('已载入渠道信息，修改后点击保存', 'success');
@@ -864,12 +893,14 @@ async function saveChannelFromForm() {
             url,
             key: document.getElementById('chKey').value.trim(),
             models: document.getElementById('chModels').value.split(/[,，]/).map(m => m.trim()).filter(Boolean),
+            priceInput: parseFloat(document.getElementById('chPriceInput').value) || 0,
+            priceOutput: parseFloat(document.getElementById('chPriceOutput').value) || 0,
             enabled: document.getElementById('chEnabled').checked,
         });
 
         // Reset form
         delete saveBtn.dataset.editId;
-        for (const id of ['chName', 'chUrl', 'chKey', 'chModels']) {
+        for (const id of ['chName', 'chUrl', 'chKey', 'chModels', 'chPriceInput', 'chPriceOutput']) {
             document.getElementById(id).value = '';
         }
         document.getElementById('chKey').placeholder = 'API Key（留空则不修改）';
@@ -917,6 +948,7 @@ async function loadSiteUsers() {
     try {
         const data = await api('/api/admin/users');
         const q = data.quotas ?? {};
+        const currency = data.usage?.currency ?? '¥';
 
         document.getElementById('adminQuotaInfo').innerHTML = q.enabled
             ? `<i class="fa-solid fa-circle-check" style="color:var(--gal-ok)"></i> 配额已启用：
@@ -947,6 +979,10 @@ async function loadSiteUsers() {
                 <div class="user-id">
                     <div class="uname">${esc(user.name)} ${badges}</div>
                     <div class="uhandle">@${esc(user.handle)} · 注册于 ${new Date(user.created).toLocaleDateString()}</div>
+                    <div class="uhandle" title="LLM 用量统计">
+                        <i class="fa-solid fa-chart-line"></i>
+                        ${fmtNumber(user.requests)} 次请求 · ${fmtNumber(user.totalTokens)} tokens · ${fmtCost(user.cost, currency)} · 最近 ${timeAgo(user.lastActive)}
+                    </div>
                 </div>
                 <div class="usage-block">
                     ${usageBar('存储', Math.round(user.storageBytes / 1024 / 1024 * 10) / 10, q.maxStorageMB, ' MB')}
@@ -1101,6 +1137,674 @@ async function createInvite() {
 }
 
 // ============================================================
+// Formatting helpers
+// ============================================================
+
+/**
+ * Formats a number with a compact CJK suffix.
+ * @param {number} value Raw number
+ * @returns {string} Formatted number
+ */
+function fmtNumber(value) {
+    const n = Number(value) || 0;
+
+    if (n >= 1e8) return `${(n / 1e8).toFixed(2)} 亿`;
+    if (n >= 1e4) return `${(n / 1e4).toFixed(1)} 万`;
+    if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+    return String(Math.round(n * 100) / 100);
+}
+
+/**
+ * Formats a cost value with its currency symbol.
+ * @param {number} value Cost
+ * @param {string} [currency] Currency symbol
+ * @returns {string} Formatted cost
+ */
+function fmtCost(value, currency = '¥') {
+    const n = Number(value) || 0;
+
+    if (!n) return `${currency}0`;
+    return `${currency}${n < 1 ? n.toFixed(4) : n.toFixed(2)}`;
+}
+
+/**
+ * Formats a timestamp as a short relative time.
+ * @param {number} timestamp Timestamp in ms
+ * @returns {string} Relative time, or an em dash when empty
+ */
+function timeAgo(timestamp) {
+    if (!timestamp) return '—';
+
+    const diff = Date.now() - timestamp;
+    const minute = 60 * 1000;
+    const hour = 60 * minute;
+    const day = 24 * hour;
+
+    if (diff < minute) return '刚刚';
+    if (diff < hour) return `${Math.floor(diff / minute)} 分钟前`;
+    if (diff < day) return `${Math.floor(diff / hour)} 小时前`;
+    if (diff < 30 * day) return `${Math.floor(diff / day)} 天前`;
+    return new Date(timestamp).toLocaleDateString();
+}
+
+/**
+ * Renders a single statistics card.
+ * @param {string} label Card label
+ * @param {string} value Main value
+ * @param {string} [sub] Secondary line
+ * @param {string} [icon] FontAwesome icon class
+ * @returns {string} HTML string
+ */
+function statCard(label, value, sub = '', icon = '') {
+    return `
+        <div class="stat-card">
+            <div class="stat-label">${icon ? `<i class="fa-solid ${icon}"></i> ` : ''}${esc(label)}</div>
+            <div class="stat-value">${esc(value)}</div>
+            <div class="stat-sub">${esc(sub)}</div>
+        </div>`;
+}
+
+/**
+ * Renders a simple bar chart out of a daily series.
+ * @param {string} containerId Container element id
+ * @param {object[]} series Daily data points
+ * @param {string} [key] Value key to plot
+ * @param {string} [label] Value label used in tooltips
+ * @returns {void}
+ */
+function renderChart(containerId, series, key = 'totalTokens', label = 'tokens') {
+    const container = document.getElementById(containerId);
+    const points = Array.isArray(series) ? series : [];
+
+    if (!points.length) {
+        container.innerHTML = '';
+        return;
+    }
+
+    const max = Math.max(...points.map(p => Number(p[key]) || 0), 1);
+
+    container.innerHTML = points.map((point) => {
+        const value = Number(point[key]) || 0;
+        const height = Math.max(Math.round((value / max) * 100), value ? 3 : 0);
+        return `
+            <div class="chart-col" title="${esc(point.day)} · ${fmtNumber(value)} ${label}">
+                <div class="chart-bar-wrap"><div class="chart-bar" style="height:${height}%"></div></div>
+                <div class="chart-label">${esc(String(point.day).slice(5))}</div>
+            </div>`;
+    }).join('');
+}
+
+/**
+ * Renders a per-model usage table.
+ * @param {object[]} models Model rows
+ * @param {string} currency Currency symbol
+ * @returns {string} HTML string
+ */
+function renderModelTable(models, currency) {
+    if (!models?.length) {
+        return '';
+    }
+
+    return `
+        <div class="chart-title">按模型统计</div>
+        <table class="data-table">
+            <thead><tr><th>模型</th><th>渠道</th><th>请求</th><th>输入</th><th>输出</th><th>合计</th><th>估算费用</th></tr></thead>
+            <tbody>
+                ${models.map(m => `
+                    <tr>
+                        <td class="mono">${esc(m.model)}</td>
+                        <td>${esc(m.channel || '—')}</td>
+                        <td>${fmtNumber(m.requests)}</td>
+                        <td>${fmtNumber(m.promptTokens)}</td>
+                        <td>${fmtNumber(m.completionTokens)}</td>
+                        <td><b>${fmtNumber(m.totalTokens)}</b></td>
+                        <td>${fmtCost(m.cost, currency)}</td>
+                    </tr>`).join('')}
+            </tbody>
+        </table>`;
+}
+
+// ============================================================
+// Site announcements (站点公告)
+// ============================================================
+
+/**
+ * Updates the unread counter shown on the announcements tab.
+ * @param {number} unread Number of unread announcements
+ * @returns {void}
+ */
+function updateAnnouncementBadge(unread) {
+    unreadAnnouncements = Math.max(Number(unread) || 0, 0);
+    const badge = document.getElementById('announcementsBadge');
+
+    if (!badge) {
+        return;
+    }
+
+    badge.textContent = unreadAnnouncements > 99 ? '99+' : String(unreadAnnouncements);
+    badge.style.display = unreadAnnouncements ? '' : 'none';
+}
+
+/**
+ * Fetches the unread count without marking anything as read.
+ * @returns {Promise<void>}
+ */
+async function refreshAnnouncementBadge() {
+    try {
+        const data = await api('/api/announcements/list');
+        updateAnnouncementBadge(data.unread ?? 0);
+    } catch {
+        // Announcements are a convenience feature: ignore failures
+    }
+}
+
+/**
+ * Renders a single announcement card.
+ * @param {object} announcement Announcement view model
+ * @returns {HTMLElement} Card element
+ */
+function renderAnnouncement(announcement) {
+    const card = document.createElement('div');
+    card.className = `announcement level-${announcement.level}${announcement.read ? '' : ' unread'}`;
+
+    const head = document.createElement('div');
+    head.className = 'an-head';
+
+    const title = document.createElement('span');
+    title.className = 'an-title';
+    title.textContent = announcement.title;
+
+    const meta = document.createElement('span');
+    meta.className = 'an-meta';
+    meta.innerHTML = `
+        ${announcement.pinned ? '<span class="badge"><i class="fa-solid fa-thumbtack"></i> 置顶</span>' : ''}
+        ${announcement.read ? '' : '<span class="badge new">未读</span>'}
+        <span class="an-date">${timeAgo(announcement.created)}</span>`;
+
+    head.append(title, meta);
+
+    const body = document.createElement('div');
+    body.className = 'an-body';
+    body.textContent = announcement.body || '';
+
+    card.append(head, body);
+    return card;
+}
+
+/**
+ * Loads and renders the announcements view.
+ * @param {boolean} [markRead=false] Whether to mark the announcements as read
+ * @returns {Promise<void>}
+ */
+async function loadAnnouncements(markRead = false) {
+    const list = document.getElementById('announcementList');
+    document.getElementById('announcementAdmin').style.display = isAdmin ? '' : 'none';
+
+    try {
+        const data = await api('/api/announcements/list');
+        const items = data.announcements ?? [];
+
+        list.innerHTML = '';
+
+        if (!items.length) {
+            list.innerHTML = '<div class="info-card">还没有公告</div>';
+        } else {
+            for (const announcement of items) {
+                list.appendChild(renderAnnouncement(announcement));
+            }
+        }
+
+        updateAnnouncementBadge(data.unread ?? 0);
+
+        // Opening the view counts as reading it
+        if (markRead && unreadAnnouncements) {
+            const result = await api('/api/announcements/read', {});
+            updateAnnouncementBadge(result.unread ?? 0);
+            list.querySelectorAll('.announcement.unread').forEach(el => el.classList.remove('unread'));
+            list.querySelectorAll('.badge.new').forEach(el => el.remove());
+        }
+
+        if (isAdmin) {
+            await loadAnnouncementAdminList();
+        }
+    } catch (error) {
+        list.innerHTML = `<div class="info-card">${esc(error.message)}</div>`;
+    }
+}
+
+/**
+ * Loads the admin announcement management list.
+ * @returns {Promise<void>}
+ */
+async function loadAnnouncementAdminList() {
+    const container = document.getElementById('announcementAdminList');
+
+    try {
+        const data = await api('/api/announcements/admin/list');
+        const items = data.announcements ?? [];
+
+        if (!items.length) {
+            container.innerHTML = '<div class="info-card">还没有发过公告</div>';
+            return;
+        }
+
+        container.innerHTML = '';
+
+        for (const announcement of items) {
+            const row = document.createElement('div');
+            row.className = 'invite-row';
+            row.innerHTML = `
+                <div class="invite-code" style="letter-spacing:0; min-width:auto">${esc(announcement.title)}</div>
+                <div class="invite-note">
+                    ${esc(announcement.levelLabel)} ·
+                    ${announcement.pinned ? '置顶' : '普通'} ·
+                    ${announcement.enabled ? '已发布' : '已下架'} ·
+                    发布于 ${timeAgo(announcement.created)}
+                    ${announcement.updated !== announcement.created ? ` · 编辑于 ${timeAgo(announcement.updated)}` : ''}
+                </div>
+                <div class="channel-actions">
+                    <button class="menu_button" data-edit="${esc(announcement.id)}"><i class="fa-solid fa-pen"></i> 编辑</button>
+                    <button class="menu_button btn-danger" data-del="${esc(announcement.id)}"><i class="fa-solid fa-trash"></i> 删除</button>
+                </div>`;
+            container.appendChild(row);
+        }
+
+        container.querySelectorAll('[data-edit]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const announcement = items.find(a => a.id === btn.dataset.edit);
+
+                if (!announcement) {
+                    return;
+                }
+
+                document.getElementById('anTitle').value = announcement.title;
+                document.getElementById('anLevel').value = announcement.level;
+                document.getElementById('anBody').value = announcement.body;
+                document.getElementById('anPinned').checked = announcement.pinned;
+                document.getElementById('anEnabled').checked = announcement.enabled;
+                document.getElementById('anSaveBtn').dataset.editId = announcement.id;
+                document.getElementById('anSaveBtn').innerHTML = '<i class="fa-solid fa-floppy-disk"></i> 保存修改';
+                toast('已载入公告，修改后点击保存', 'success');
+            });
+        });
+
+        container.querySelectorAll('[data-del]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                if (!window.confirm('确定删除这条公告吗？')) {
+                    return;
+                }
+
+                try {
+                    await api('/api/announcements/admin/delete', { id: btn.dataset.del });
+                    toast('公告已删除 ✓', 'success');
+                    await loadAnnouncements();
+                } catch (error) {
+                    toast(error.message, 'error');
+                }
+            });
+        });
+    } catch (error) {
+        container.innerHTML = `<div class="info-card">${esc(error.message)}</div>`;
+    }
+}
+
+/**
+ * Publishes or updates an announcement from the admin form.
+ * @returns {Promise<void>}
+ */
+async function saveAnnouncementFromForm() {
+    const title = document.getElementById('anTitle').value.trim();
+
+    if (!title) {
+        return toast('请填写公告标题', 'error');
+    }
+
+    const saveBtn = document.getElementById('anSaveBtn');
+
+    try {
+        await api('/api/announcements/admin/save', {
+            id: saveBtn.dataset.editId || undefined,
+            title,
+            level: document.getElementById('anLevel').value,
+            body: document.getElementById('anBody').value.trim(),
+            pinned: document.getElementById('anPinned').checked,
+            enabled: document.getElementById('anEnabled').checked,
+        });
+
+        delete saveBtn.dataset.editId;
+        saveBtn.innerHTML = '<i class="fa-solid fa-bullhorn"></i> 发布公告';
+        document.getElementById('anTitle').value = '';
+        document.getElementById('anBody').value = '';
+        document.getElementById('anPinned').checked = false;
+        document.getElementById('anEnabled').checked = true;
+
+        toast('公告已发布 ✓', 'success');
+        await loadAnnouncements();
+    } catch (error) {
+        toast(error.message, 'error');
+    }
+}
+
+// ============================================================
+// Usage statistics (用量统计)
+// ============================================================
+
+/**
+ * Renders the usage cards of a counter set.
+ * @param {object} counters Counters of a period
+ * @param {string} periodLabel Label of the period
+ * @param {string} currency Currency symbol
+ * @returns {string} HTML string
+ */
+function usageCards(counters, periodLabel, currency) {
+    return [
+        statCard(`${periodLabel}请求`, fmtNumber(counters.requests), `${counters.errors} 次失败`, 'fa-paper-plane'),
+        statCard(`${periodLabel}token`, fmtNumber(counters.totalTokens), `输入 ${fmtNumber(counters.promptTokens)} / 输出 ${fmtNumber(counters.completionTokens)}`, 'fa-coins'),
+        statCard(`${periodLabel}估算费用`, fmtCost(counters.cost, currency), counters.cost ? '按渠道定价估算' : '渠道未配置定价', 'fa-scale-balanced'),
+    ].join('');
+}
+
+/**
+ * Loads the usage view: the current user's stats, plus site-wide stats for admins.
+ * @returns {Promise<void>}
+ */
+async function loadUsage() {
+    const hint = document.getElementById('myUsageHint');
+    const cards = document.getElementById('myUsageCards');
+
+    try {
+        const data = await api('/api/usage/me');
+
+        if (!data.enabled) {
+            hint.innerHTML = '<i class="fa-solid fa-circle-xmark" style="color:var(--gal-danger)"></i> 用量统计未开启（config.yaml 中 usageStats.enabled）';
+            cards.innerHTML = '';
+            return;
+        }
+
+        const currency = data.currency ?? '¥';
+        hint.innerHTML = `
+            <i class="fa-solid fa-circle-info" style="color:var(--gal-accent)"></i>
+            最近使用：<b>${timeAgo(data.lastActive)}</b> ·
+            近 14 天活跃 <b>${data.activeDays}</b> 天 ·
+            费用为根据渠道定价的估算值，仅供参考`;
+
+        cards.innerHTML = [
+            usageCards(data.today, '今日', currency),
+            usageCards(data.month, '近 30 天', currency),
+            usageCards(data.totals, '累计', currency),
+        ].join('');
+
+        renderChart('myUsageChart', data.series, 'totalTokens', 'tokens');
+        document.getElementById('myUsageModels').innerHTML = renderModelTable(data.models, currency);
+
+        const siteBlock = document.getElementById('siteUsageBlock');
+        siteBlock.style.display = isAdmin ? '' : 'none';
+
+        if (isAdmin) {
+            await loadSiteUsage(currency);
+        }
+    } catch (error) {
+        hint.innerHTML = esc(error.message);
+        cards.innerHTML = '';
+    }
+}
+
+/**
+ * Loads the site-wide usage section (admins only).
+ * @param {string} currency Currency symbol
+ * @returns {Promise<void>}
+ */
+async function loadSiteUsage(currency) {
+    try {
+        const data = await api('/api/admin/usage');
+
+        if (!data.enabled) {
+            return;
+        }
+
+        document.getElementById('siteUsageCards').innerHTML = [
+            statCard('活跃用户', fmtNumber(data.activeUsers), `保留 ${data.retentionDays} 天明细`, 'fa-users'),
+            usageCards(data.totals, '全站', currency),
+        ].join('');
+
+        renderChart('siteUsageChart', data.series, 'totalTokens', 'tokens');
+        document.getElementById('siteUsageModels').innerHTML = renderModelTable(data.models, currency);
+
+        const users = data.users ?? [];
+        document.getElementById('siteUsageUsers').innerHTML = users.length ? `
+            <div class="chart-title">用户排行（累计）</div>
+            <table class="data-table">
+                <thead><tr><th>用户</th><th>最近使用</th><th>请求</th><th>token</th><th>估算费用</th></tr></thead>
+                <tbody>
+                    ${users.map(u => `
+                        <tr>
+                            <td>@${esc(u.handle)}</td>
+                            <td>${timeAgo(u.lastActive)}</td>
+                            <td>${fmtNumber(u.totals.requests)}</td>
+                            <td><b>${fmtNumber(u.totals.totalTokens)}</b></td>
+                            <td>${fmtCost(u.totals.cost, currency)}</td>
+                        </tr>`).join('')}
+                </tbody>
+            </table>` : '';
+    } catch (error) {
+        document.getElementById('siteUsageCards').innerHTML = `<div class="info-card">${esc(error.message)}</div>`;
+    }
+}
+
+// ============================================================
+// Gallery comments (作品评论)
+// ============================================================
+
+/**
+ * Loads and renders the comments of an item.
+ * @param {string} itemId Item ID
+ * @returns {Promise<void>}
+ */
+async function loadComments(itemId) {
+    const list = document.getElementById('commentList');
+    const form = document.getElementById('commentForm');
+    list.innerHTML = '<div class="hint">评论加载中…</div>';
+
+    try {
+        const data = await galleryApi('comments', { id: itemId });
+        const comments = data.comments ?? [];
+
+        commentMaxLength = data.maxLength ?? 1000;
+        document.getElementById('commentInput').maxLength = commentMaxLength;
+        document.getElementById('commentCounter').textContent = `0 / ${commentMaxLength}`;
+        document.getElementById('commentTotal').textContent = data.total ? `共 ${data.total} 条` : '';
+        form.style.display = data.allowComments ? '' : 'none';
+
+        if (!comments.length) {
+            list.innerHTML = '<div class="hint">还没有评论，来说两句吧～</div>';
+            return;
+        }
+
+        list.innerHTML = '';
+
+        for (const comment of comments.slice().reverse()) {
+            list.appendChild(renderComment(comment, itemId));
+        }
+    } catch (error) {
+        list.innerHTML = `<div class="hint">${esc(error.message)}</div>`;
+        form.style.display = 'none';
+    }
+}
+
+/**
+ * Renders a single comment.
+ * @param {object} comment Comment view model
+ * @param {string} itemId Item ID the comment belongs to
+ * @returns {HTMLElement} Comment element
+ */
+function renderComment(comment, itemId) {
+    const row = document.createElement('div');
+    row.className = `comment${comment.hidden ? ' hidden-comment' : ''}`;
+
+    const text = document.createElement('div');
+    text.className = 'comment-text';
+    text.textContent = comment.text;
+
+    const meta = document.createElement('div');
+    meta.className = 'comment-meta';
+    meta.innerHTML = `
+        <b>${esc(comment.authorName)}</b>
+        ${comment.isOwner ? '<span class="badge">我</span>' : ''}
+        ${comment.hidden ? '<span class="badge warn">已隐藏</span>' : ''}
+        <span class="an-date">${timeAgo(comment.created)}</span>
+        <span class="comment-actions">
+            <button class="link-btn" data-like><i class="fa-solid fa-heart${comment.liked ? ' liked' : ''}"></i> ${comment.likes}</button>
+            ${comment.isOwner || comment.canModerate ? '<button class="link-btn" data-del><i class="fa-solid fa-trash"></i> 删除</button>' : ''}
+            ${comment.canModerate ? `<button class="link-btn" data-hide>${comment.hidden ? '取消隐藏' : '隐藏'}</button>` : ''}
+        </span>`;
+
+    row.append(meta, text);
+
+    meta.querySelector('[data-like]')?.addEventListener('click', async () => {
+        try {
+            await galleryApi('comment/like', { id: itemId, commentId: comment.id });
+            await loadComments(itemId);
+        } catch (error) {
+            toast(error.message, 'error');
+        }
+    });
+
+    meta.querySelector('[data-del]')?.addEventListener('click', async () => {
+        if (!window.confirm('确定删除这条评论吗？')) {
+            return;
+        }
+
+        try {
+            await galleryApi('comment/delete', { id: itemId, commentId: comment.id });
+            toast('评论已删除 ✓', 'success');
+            await loadComments(itemId);
+        } catch (error) {
+            toast(error.message, 'error');
+        }
+    });
+
+    meta.querySelector('[data-hide]')?.addEventListener('click', async () => {
+        try {
+            await galleryApi('comment/hide', { id: itemId, commentId: comment.id, hidden: !comment.hidden });
+            toast(comment.hidden ? '已取消隐藏 ✓' : '已隐藏 ✓', 'success');
+            await loadComments(itemId);
+        } catch (error) {
+            toast(error.message, 'error');
+        }
+    });
+
+    return row;
+}
+
+/**
+ * Posts the comment currently typed in the detail modal.
+ * @returns {Promise<void>}
+ */
+async function postComment() {
+    const input = document.getElementById('commentInput');
+    const text = input.value.trim();
+
+    if (!text) {
+        return toast('评论内容不能为空', 'error');
+    }
+
+    const submitBtn = document.getElementById('commentSubmit');
+    submitBtn.disabled = true;
+
+    try {
+        const data = await galleryApi('comment', { id: currentItem.id, text });
+        input.value = '';
+        document.getElementById('commentCounter').textContent = `0 / ${commentMaxLength}`;
+        document.getElementById('commentTotal').textContent = `共 ${data.total} 条`;
+        toast('评论已发布 ✓', 'success');
+        await loadComments(currentItem.id);
+    } catch (error) {
+        toast(error.message, 'error');
+    } finally {
+        submitBtn.disabled = false;
+    }
+}
+
+/**
+ * Loads the site-wide comment moderation list (admins only).
+ * @returns {Promise<void>}
+ */
+async function loadAdminComments() {
+    const container = document.getElementById('adminCommentList');
+    const info = document.getElementById('adminCommentInfo');
+
+    try {
+        const data = await galleryApi('admin/comments');
+        const comments = data.comments ?? [];
+
+        info.innerHTML = `
+            <i class="fa-solid fa-comments" style="color:var(--gal-accent)"></i>
+            共 <b>${data.total}</b> 条评论 · 已隐藏 <b>${data.hidden}</b> 条
+            <small>（只显示最新 ${comments.length} 条）</small>`;
+
+        if (!comments.length) {
+            container.innerHTML = '<div class="info-card">还没有评论</div>';
+            return;
+        }
+
+        container.innerHTML = '';
+
+        for (const comment of comments) {
+            const row = document.createElement('div');
+            row.className = 'invite-row';
+
+            const body = document.createElement('div');
+            body.className = 'comment-text';
+            body.textContent = comment.text;
+
+            row.innerHTML = `
+                <div class="user-id">
+                    <div class="uname">${esc(comment.authorName)} ${comment.hidden ? '<span class="badge warn">已隐藏</span>' : ''}</div>
+                    <div class="uhandle">《${esc(comment.itemTitle)}》 · ${timeAgo(comment.created)}</div>
+                </div>
+                <div class="channel-actions">
+                    <button class="menu_button" data-hide><i class="fa-solid fa-eye-slash"></i> ${comment.hidden ? '显示' : '隐藏'}</button>
+                    <button class="menu_button btn-danger" data-del><i class="fa-solid fa-trash"></i> 删除</button>
+                </div>`;
+
+            const holder = document.createElement('div');
+            holder.className = 'invite-note';
+            holder.append(body);
+            row.insertBefore(holder, row.querySelector('.channel-actions'));
+
+            row.querySelector('[data-hide]')?.addEventListener('click', async () => {
+                try {
+                    await galleryApi('comment/hide', { id: comment.itemId, commentId: comment.id, hidden: !comment.hidden });
+                    toast('已更新 ✓', 'success');
+                    await loadAdminComments();
+                } catch (error) {
+                    toast(error.message, 'error');
+                }
+            });
+
+            row.querySelector('[data-del]')?.addEventListener('click', async () => {
+                if (!window.confirm('确定删除这条评论吗？')) {
+                    return;
+                }
+
+                try {
+                    await galleryApi('comment/delete', { id: comment.itemId, commentId: comment.id });
+                    toast('评论已删除 ✓', 'success');
+                    await loadAdminComments();
+                } catch (error) {
+                    toast(error.message, 'error');
+                }
+            });
+
+            container.appendChild(row);
+        }
+    } catch (error) {
+        info.innerHTML = esc(error.message);
+        container.innerHTML = '';
+    }
+}
+
+// ============================================================
 // Events
 // ============================================================
 
@@ -1206,6 +1910,32 @@ function bindEvents() {
         }
     });
 
+    document.getElementById('favoriteBtn').addEventListener('click', async () => {
+        try {
+            const data = await galleryApi('favorite', { id: currentItem.id });
+            currentItem.favorited = data.favorited;
+            document.getElementById('favoriteBtn').innerHTML = data.favorited
+                ? '<i class="fa-solid fa-star" style="color:var(--gal-accent)"></i> 已收藏'
+                : '<i class="fa-solid fa-star" style="opacity:0.55"></i> 收藏';
+            toast(data.favorited ? '已收藏 ✓ 在「我的收藏」里可以找到' : '已取消收藏', 'success');
+        } catch (error) {
+            toast(error.message, 'error');
+        }
+    });
+
+    document.getElementById('commentSubmit').addEventListener('click', postComment);
+
+    document.getElementById('commentInput').addEventListener('input', (event) => {
+        document.getElementById('commentCounter').textContent = `${event.target.value.length} / ${commentMaxLength}`;
+    });
+
+    document.getElementById('commentInput').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+            event.preventDefault();
+            postComment();
+        }
+    });
+
     document.getElementById('reportBtn').addEventListener('click', async () => {
         const reason = window.prompt('请输入举报原因：');
         if (reason === null) {
@@ -1278,6 +2008,21 @@ function bindEvents() {
     // Site admin
     document.getElementById('adminCreateInviteBtn').addEventListener('click', createInvite);
 
+    // Announcements
+    document.getElementById('anSaveBtn').addEventListener('click', saveAnnouncementFromForm);
+
+    document.getElementById('announcementsReadBtn').addEventListener('click', async () => {
+        try {
+            const result = await api('/api/announcements/read', {});
+            updateAnnouncementBadge(result.unread ?? 0);
+            document.querySelectorAll('#announcementList .announcement.unread').forEach(el => el.classList.remove('unread'));
+            document.querySelectorAll('#announcementList .badge.new').forEach(el => el.remove());
+            toast('已全部标为已读 ✓', 'success');
+        } catch (error) {
+            toast(error.message, 'error');
+        }
+    });
+
     // Managed model channels
     document.getElementById('chSaveBtn').addEventListener('click', saveChannelFromForm);
 }
@@ -1313,7 +2058,26 @@ async function init() {
         // Ignore: admin UI is only a convenience
     }
 
-    await loadList();
+    const hashView = window.location.hash.replace(/^#/, '');
+    const initialView = ['channels', 'announcements', 'usage', 'admin'].includes(hashView) ? hashView : 'gallery';
+
+    if (initialView === 'gallery') {
+        await loadList();
+    } else {
+        await switchView(initialView);
+    }
+
+    await refreshAnnouncementBadge();
 }
 
-init();
+// Other scripts (e.g. the announcement banner of the main UI) can open a view.
+// The switch is deferred until init() is done, so the CSRF token is available.
+const ready = init().catch(error => console.error('Gallery init failed:', error));
+
+document.addEventListener('st-gallery-open', (event) => {
+    const view = event instanceof CustomEvent ? event.detail?.view : null;
+
+    if (typeof view === 'string') {
+        ready.then(() => switchView(view));
+    }
+});
